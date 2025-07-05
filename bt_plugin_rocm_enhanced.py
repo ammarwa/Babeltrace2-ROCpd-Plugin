@@ -440,16 +440,32 @@ class RocmSourceIterator(bt2._UserMessageIterator):
             ma_table = f'rocpd_memory_allocate_{self._uuid}' if self._table_exists(f'rocpd_memory_allocate_{self._uuid}') else 'rocpd_memory_allocate'
             string_table = f'rocpd_string_{self._uuid}' if self._table_exists(f'rocpd_string_{self._uuid}') else 'rocpd_string'
             
-            query = f"""
-            SELECT 
-                m.start, m.end, m.nid, m.pid, m.tid,
-                m.size, m.agent_id, m.ptr,
-                s.string as name,
-                'memory_allocation' as category
-            FROM {ma_table} m
-            JOIN {string_table} s ON m.name_id = s.id
-            ORDER BY m.start
-            """
+            # Check if name_id column exists in the memory allocation table
+            cursor.execute(f"PRAGMA table_info({ma_table})")
+            columns = [col[1] for col in cursor.fetchall()]
+            has_name_id = 'name_id' in columns
+            
+            if has_name_id:
+                query = f"""
+                SELECT 
+                    m.start, m.end, m.nid, m.pid, m.tid,
+                    m.size, m.agent_id, m.address as ptr,
+                    s.string as name,
+                    'memory_allocation' as category
+                FROM {ma_table} m
+                JOIN {string_table} s ON m.name_id = s.id
+                ORDER BY m.start
+                """
+            else:
+                query = f"""
+                SELECT 
+                    m.start, m.end, m.nid, m.pid, m.tid,
+                    m.size, m.agent_id, m.address as ptr,
+                    'memory_allocation' as name,
+                    'memory_allocation' as category
+                FROM {ma_table} m
+                ORDER BY m.start
+                """
             cursor.execute(query)
             
             for row in cursor.fetchall():
@@ -597,7 +613,7 @@ class RocmSource(bt2._UserSourceComponent, message_iterator_class=RocmSourceIter
     @classmethod
     def _user_get_supported_mip_versions(cls, params, obj, log_level):
         """Declare supported MIP versions."""
-        return [1]  # Support MIP version 0
+        return [0]  # Support MIP version 0
     
     def __init__(self, config, params, obj):
         """Initialize the source component."""
@@ -848,6 +864,6 @@ class RocmSource(bt2._UserSourceComponent, message_iterator_class=RocmSourceIter
         
         elif query == "babeltrace.mip-version":
             # Declare MIP version support
-            return 1  # Support MIP version 1
+            return 0  # Support MIP version 0
         
         return None

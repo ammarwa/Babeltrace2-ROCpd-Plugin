@@ -139,11 +139,11 @@ class RocmSourceIterator(bt2._UserMessageIterator):
             return '', ''
     
     def _table_exists(self, table_name: str) -> bool:
-        """Check if a table exists in the database."""
+        """Check if a table or view exists in the database."""
         try:
             cursor = self._conn.cursor()
             cursor.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                "SELECT name FROM sqlite_master WHERE (type='table' OR type='view') AND name=?",
                 (table_name,)
             )
             return cursor.fetchone() is not None
@@ -151,34 +151,124 @@ class RocmSourceIterator(bt2._UserMessageIterator):
             return False
     
     def _load_events(self):
-        """Load all events from the database."""
+        """Load all events from the database using views."""
         self._current_events = []
         
-        # Load different types of events, handling missing tables gracefully
-        if self._table_exists(f'rocpd_region{self._uuid}'):
-            self._load_region_events()
+        # Load different types of events from views, handling missing views gracefully
+        if self._table_exists('regions'):
+            self._load_region_events_from_view()
         else:
-            print(f"Warning: Table rocpd_region{self._uuid} not found")
+            print("Warning: View 'regions' not found")
             
-        if self._table_exists(f'rocpd_kernel_dispatch{self._uuid}'):
-            self._load_kernel_dispatch_events()
+        if self._table_exists('kernels'):
+            self._load_kernel_events_from_view()
         else:
-            print(f"Warning: Table rocpd_kernel_dispatch{self._uuid} not found")
+            print("Warning: View 'kernels' not found")
             
-        if self._table_exists(f'rocpd_memory_copy{self._uuid}'):
-            self._load_memory_copy_events()
+        if self._table_exists('memory_copies'):
+            self._load_memory_copy_events_from_view()
         else:
-            print(f"Warning: Table rocpd_memory_copy{self._uuid} not found")
+            print("Warning: View 'memory_copies' not found")
             
-        if self._table_exists(f'rocpd_sample{self._uuid}'):
-            self._load_sample_events()
+        if self._table_exists('samples'):
+            self._load_sample_events_from_view()
         else:
-            print(f"Warning: Table rocpd_sample{self._uuid} not found")
+            print("Warning: View 'samples' not found")
+            
+        # Load PMC events
+        if self._table_exists('pmc_events'):
+            self._load_pmc_events_from_view()
+        else:
+            print("Warning: View 'pmc_events' not found")
+            
+        # Load memory allocation events
+        if self._table_exists('memory_allocations'):
+            self._load_memory_allocation_events_from_view()
+        else:
+            print("Warning: View 'memory_allocations' not found")
+            
+        # Load counter collection events
+        if self._table_exists('counters_collection'):
+            self._load_counter_collection_events()
+        else:
+            print("Warning: View 'counters_collection' not found")
         
         # Sort events by timestamp
         self._current_events.sort(key=lambda x: x.timestamp)
         
         print(f"Loaded {len(self._current_events)} events from database")
+    
+    def _load_region_events_from_view(self):
+        """Load region events from the regions view with full information."""
+        try:
+            cursor = self._conn.cursor()
+            
+            query = """
+            SELECT 
+                id, guid, category, name, nid, pid, tid, start, end, duration,
+                event_id, stack_id, parent_stack_id, corr_id, extdata,
+                call_stack, line_info
+            FROM regions
+            ORDER BY start
+            """
+            cursor.execute(query)
+            
+            for row in cursor.fetchall():
+                category = row[2].lower() if row[2] else 'unknown'
+                duration = row[9] if row[9] is not None else (row[8] - row[7] if row[8] and row[7] else 0)
+                
+                # Create comprehensive event args
+                common_args = {
+                    'region_id': row[0] or 0,
+                    'guid': row[1] or '',
+                    'region_name': row[3] or '',
+                    'category': row[2] or '',
+                    'nid': row[4] or 0,
+                    'pid': row[5] or 0,
+                    'tid': row[6] or 0,
+                    'event_id': row[10] or 0,
+                    'stack_id': row[11] or 0,
+                    'parent_stack_id': row[12] or 0,
+                    'correlation_id': row[13] or 0,
+                    'extdata': str(row[14]) if row[14] else '{}',
+                    'call_stack': str(row[15]) if row[15] else '{}',
+                    'line_info': str(row[16]) if row[16] else '{}'
+                }
+                
+                # Region start event
+                start_args = common_args.copy()
+                start_args.update({
+                    'event_type': 'region_start',
+                    'duration': 0
+                })
+                
+                self._current_events.append(RocmEventData(
+                    name=f"{row[3]}_start",
+                    timestamp=row[7],
+                    category=category,
+                    pid=row[5],
+                    tid=row[6],
+                    event_args=start_args
+                ))
+                
+                # Region end event
+                end_args = common_args.copy()
+                end_args.update({
+                    'event_type': 'region_end',
+                    'duration': duration
+                })
+                
+                self._current_events.append(RocmEventData(
+                    name=f"{row[3]}_end",
+                    timestamp=row[8],
+                    category=category,
+                    pid=row[5],
+                    tid=row[6],
+                    event_args=end_args
+                ))
+                
+        except sqlite3.Error as e:
+            print(f"Error loading region events from view: {e}")
     
     def _load_region_events(self):
         """Load region events from the database with category-based classification."""
@@ -266,6 +356,103 @@ class RocmSourceIterator(bt2._UserMessageIterator):
         except sqlite3.Error as e:
             print(f"Error loading region events: {e}")
     
+    def _load_kernel_events_from_view(self):
+        """Load kernel events from the kernels view with full information."""
+        try:
+            cursor = self._conn.cursor()
+            
+            query = """
+            SELECT 
+                id, guid, tid, category, region, name, nid, pid,
+                agent_abs_index, agent_log_index, agent_type_index, agent_type,
+                code_object_id, kernel_id, dispatch_id, stream_id, queue_id,
+                queue, stream, start, end, duration,
+                grid_x, grid_y, grid_z, workgroup_x, workgroup_y, workgroup_z,
+                lds_size, scratch_size, static_lds_size, static_scratch_size,
+                stack_id, parent_stack_id, corr_id
+            FROM kernels
+            ORDER BY start
+            """
+            cursor.execute(query)
+            
+            for row in cursor.fetchall():
+                kernel_name = row[5] or 'unknown_kernel'
+                
+                # Create comprehensive kernel args
+                kernel_args = {
+                    'kernel_id': row[0] or 0,
+                    'guid': row[1] or '',
+                    'tid': row[2] or 0,
+                    'category': row[3] or '',
+                    'region': row[4] or '',
+                    'kernel_name': kernel_name,
+                    'nid': row[6] or 0,
+                    'pid': row[7] or 0,
+                    'agent_abs_index': row[8] or 0,
+                    'agent_log_index': row[9] or 0,
+                    'agent_type_index': row[10] or 0,
+                    'agent_type': row[11] or '',
+                    'code_object_id': row[12] or 0,
+                    'kernel_symbol_id': row[13] or 0,
+                    'dispatch_id': row[14] or 0,
+                    'stream_id': row[15] or 0,
+                    'queue_id': row[16] or 0,
+                    'queue_name': row[17] or '',
+                    'stream_name': row[18] or '',
+                    'grid_size_x': row[22] or 0,
+                    'grid_size_y': row[23] or 0,
+                    'grid_size_z': row[24] or 0,
+                    'workgroup_size_x': row[25] or 0,
+                    'workgroup_size_y': row[26] or 0,
+                    'workgroup_size_z': row[27] or 0,
+                    'lds_size': row[28] or 0,
+                    'scratch_size': row[29] or 0,
+                    'static_lds_size': row[30] or 0,
+                    'static_scratch_size': row[31] or 0,
+                    'stack_id': row[32] or 0,
+                    'parent_stack_id': row[33] or 0,
+                    'correlation_id': row[34] or 0,
+                    'duration': row[21] if row[21] is not None else (row[20] - row[19] if row[20] and row[19] else 0)
+                }
+                
+                # Kernel dispatch start event
+                start_args = kernel_args.copy()
+                start_args.update({
+                    'event_type': 'kernel_dispatch_start',
+                    'duration': 0
+                })
+                
+                self._current_events.append(RocmEventData(
+                    name=f"kernel_dispatch_start",
+                    timestamp=row[19],
+                    category='kernel_dispatch',
+                    pid=row[7],
+                    tid=row[2],
+                    agent_id=row[8],  # Using agent_abs_index as agent_id
+                    queue_id=row[16],
+                    event_args=start_args
+                ))
+                
+                # Kernel dispatch end event
+                end_args = kernel_args.copy()
+                end_args.update({
+                    'event_type': 'kernel_dispatch_end'
+                })
+                
+                self._current_events.append(RocmEventData(
+                    name=f"kernel_dispatch_end",
+                    timestamp=row[20],
+                    category='kernel_dispatch',
+                    pid=row[7],
+                    tid=row[2],
+                    agent_id=row[8],  # Using agent_abs_index as agent_id
+                    queue_id=row[16],
+                    event_args=end_args
+                ))
+                
+        except sqlite3.Error as e:
+            print(f"Error loading kernel events from view: {e}")
+    
     def _load_kernel_dispatch_events(self):
         """Load kernel dispatch events from the database."""
         try:
@@ -329,6 +516,99 @@ class RocmSourceIterator(bt2._UserMessageIterator):
         except sqlite3.Error as e:
             print(f"Error loading kernel dispatch events: {e}")
     
+    def _load_memory_copy_events_from_view(self):
+        """Load memory copy events from the memory_copies view with full information."""
+        try:
+            cursor = self._conn.cursor()
+            
+            query = """
+            SELECT 
+                id, guid, category, nid, pid, tid, start, end, duration,
+                name, region_name, stream_id, queue_id, stream_name, queue_name,
+                size, dst_device, dst_agent_abs_index, dst_agent_log_index,
+                dst_agent_type_index, dst_agent_type, dst_address,
+                src_device, src_agent_abs_index, src_agent_log_index,
+                src_agent_type_index, src_agent_type, src_address,
+                stack_id, parent_stack_id, corr_id
+            FROM memory_copies
+            ORDER BY start
+            """
+            cursor.execute(query)
+            
+            for row in cursor.fetchall():
+                copy_name = row[9] or 'unknown_copy'
+                
+                # Create comprehensive memory copy args
+                memory_args = {
+                    'copy_id': row[0] or 0,
+                    'guid': row[1] or '',
+                    'category': row[2] or '',
+                    'nid': row[3] or 0,
+                    'pid': row[4] or 0,
+                    'tid': row[5] or 0,
+                    'copy_name': copy_name,
+                    'region_name': row[10] or '',
+                    'stream_id': row[11] or 0,
+                    'queue_id': row[12] or 0,
+                    'stream_name': row[13] or '',
+                    'queue_name': row[14] or '',
+                    'size': row[15] or 0,
+                    'dst_device': row[16] or '',
+                    'dst_agent_abs_index': row[17] or 0,
+                    'dst_agent_log_index': row[18] or 0,
+                    'dst_agent_type_index': row[19] or 0,
+                    'dst_agent_type': row[20] or '',
+                    'dst_address': row[21] or 0,
+                    'src_device': row[22] or '',
+                    'src_agent_abs_index': row[23] or 0,
+                    'src_agent_log_index': row[24] or 0,
+                    'src_agent_type_index': row[25] or 0,
+                    'src_agent_type': row[26] or '',
+                    'src_address': row[27] or 0,
+                    'stack_id': row[28] or 0,
+                    'parent_stack_id': row[29] or 0,
+                    'correlation_id': row[30] or 0,
+                    'duration': row[8] if row[8] is not None else (row[7] - row[6] if row[7] and row[6] else 0)
+                }
+                
+                # Memory copy start event
+                start_args = memory_args.copy()
+                start_args.update({
+                    'event_type': 'memory_copy_start',
+                    'duration': 0
+                })
+                
+                self._current_events.append(RocmEventData(
+                    name=f"memory_copy_start",
+                    timestamp=row[6],
+                    category='memory_copy',
+                    pid=row[4],
+                    tid=row[5],
+                    queue_id=row[12],
+                    stream_id=row[11],
+                    event_args=start_args
+                ))
+                
+                # Memory copy end event
+                end_args = memory_args.copy()
+                end_args.update({
+                    'event_type': 'memory_copy_end'
+                })
+                
+                self._current_events.append(RocmEventData(
+                    name=f"memory_copy_end",
+                    timestamp=row[7],
+                    category='memory_copy',
+                    pid=row[4],
+                    tid=row[5],
+                    queue_id=row[12],
+                    stream_id=row[11],
+                    event_args=end_args
+                ))
+                
+        except sqlite3.Error as e:
+            print(f"Error loading memory copy events from view: {e}")
+    
     def _load_memory_copy_events(self):
         """Load memory copy events from the database."""
         try:
@@ -337,17 +617,37 @@ class RocmSourceIterator(bt2._UserMessageIterator):
             mc_table = f'rocpd_memory_copy{self._uuid}' if self._uuid else 'rocpd_memory_copy'
             string_table = f'rocpd_string{self._uuid}' if self._uuid else 'rocpd_string'
             
-            query = f"""
-            SELECT 
-                m.start, m.end, m.nid, m.pid, m.tid,
-                m.size, m.dst_agent_id, m.src_agent_id,
-                m.queue_id, m.stream_id,
-                s.string as name,
-                'memory_copy' as category
-            FROM {mc_table} m
-            JOIN {string_table} s ON m.name_id = s.id
-            ORDER BY m.start
-            """
+            # First check what columns are available in the memory copy table
+            cursor.execute(f"PRAGMA table_info({mc_table})")
+            columns = [row[1] for row in cursor.fetchall()]
+            
+            # Build query based on available columns
+            if 'name_id' in columns:
+                # If name_id exists, join with string table
+                query = f"""
+                SELECT 
+                    m.start, m.end, m.nid, m.pid, m.tid,
+                    m.size, m.dst_agent_id, m.src_agent_id,
+                    m.queue_id, m.stream_id,
+                    COALESCE(s.string, 'MEMORY_COPY_UNKNOWN') as name,
+                    'memory_copy' as category
+                FROM {mc_table} m
+                LEFT JOIN {string_table} s ON m.name_id = s.id
+                ORDER BY m.start
+                """
+            else:
+                # If name_id doesn't exist, use a default name
+                query = f"""
+                SELECT 
+                    m.start, m.end, m.nid, m.pid, m.tid,
+                    m.size, m.dst_agent_id, m.src_agent_id,
+                    m.queue_id, m.stream_id,
+                    'MEMORY_COPY_DEVICE_TO_HOST' as name,
+                    'memory_copy' as category
+                FROM {mc_table} m
+                ORDER BY m.start
+                """
+            
             cursor.execute(query)
             
             for row in cursor.fetchall():
@@ -386,6 +686,55 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                 
         except sqlite3.Error as e:
             print(f"Error loading memory copy events: {e}")
+    
+    def _load_sample_events_from_view(self):
+        """Load sample events from the samples view with full information."""
+        try:
+            cursor = self._conn.cursor()
+            
+            query = """
+            SELECT 
+                id, guid, category, name, nid, pid, tid, timestamp,
+                event_id, stack_id, parent_stack_id, corr_id,
+                extdata, call_stack, line_info
+            FROM samples
+            ORDER BY timestamp
+            """
+            cursor.execute(query)
+            
+            for row in cursor.fetchall():
+                sample_name = row[3] or f"sample_{row[0]}"
+                
+                # Create comprehensive sample args
+                sample_args = {
+                    'sample_id': row[0] or 0,
+                    'guid': row[1] or '',
+                    'category': row[2] or '',
+                    'sample_name': sample_name,
+                    'nid': row[4] or 0,
+                    'pid': row[5] or 0,
+                    'tid': row[6] or 0,
+                    'event_id': row[8] or 0,
+                    'stack_id': row[9] or 0,
+                    'parent_stack_id': row[10] or 0,
+                    'correlation_id': row[11] or 0,
+                    'extdata': str(row[12]) if row[12] else '{}',
+                    'call_stack': str(row[13]) if row[13] else '{}',
+                    'line_info': str(row[14]) if row[14] else '{}',
+                    'event_type': 'sample'
+                }
+                
+                self._current_events.append(RocmEventData(
+                    name=f"sample",
+                    timestamp=row[7],
+                    category='sample',
+                    pid=row[5],
+                    tid=row[6],
+                    event_args=sample_args
+                ))
+                
+        except sqlite3.Error as e:
+            print(f"Error loading sample events from view: {e}")
     
     def _load_sample_events(self):
         """Load sample events from the database."""
@@ -428,11 +777,264 @@ class RocmSourceIterator(bt2._UserMessageIterator):
         except sqlite3.Error as e:
             print(f"Error loading sample events: {e}")
     
+    def _load_counter_collection_events(self):
+        """Load counter collection events from the database."""
+        try:
+            cursor = self._conn.cursor()
+            
+            query = """
+            SELECT 
+                id, guid, dispatch_id, kernel_id, event_id, correlation_id,
+                stack_id, parent_stack_id, pid, tid, agent_id, agent_abs_index,
+                agent_log_index, agent_type_index, agent_type, queue_id,
+                grid_size_x, grid_size_y, grid_size_z, kernel_name, kernel_region,
+                workgroup_size_x, workgroup_size_y, workgroup_size_z,
+                lds_block_size, scratch_size, vgpr_count, accum_vgpr_count, sgpr_count,
+                counter_name, counter_symbol, component, description, block, expression,
+                value_type, counter_id, value, start, end, is_constant, is_derived,
+                duration, category, nid, extdata, code_object_id
+            FROM counters_collection
+            ORDER BY start
+            """
+            cursor.execute(query)
+            
+            for row in cursor.fetchall():
+                # Create counter collection event
+                counter_args = {
+                    'id': row[0] or 0,
+                    'guid': row[1] or '',
+                    'dispatch_id': row[2] or 0,
+                    'kernel_id': row[3] or 0,
+                    'event_id': row[4] or 0,
+                    'correlation_id': row[5] or 0,
+                    'stack_id': row[6] or 0,
+                    'parent_stack_id': row[7] or 0,
+                    'pid': row[8] or 0,
+                    'tid': row[9] or 0,
+                    'agent_id': row[10] or 0,
+                    'agent_abs_index': row[11] or 0,
+                    'agent_log_index': row[12] or 0,
+                    'agent_type_index': row[13] or 0,
+                    'agent_type': row[14] or '',
+                    'queue_id': row[15] or 0,
+                    'grid_size_x': row[16] or 0,
+                    'grid_size_y': row[17] or 0,
+                    'grid_size_z': row[18] or 0,
+                    'kernel_name': row[19] or '',
+                    'kernel_region': row[20] or '',
+                    'workgroup_size_x': row[21] or 0,
+                    'workgroup_size_y': row[22] or 0,
+                    'workgroup_size_z': row[23] or 0,
+                    'lds_block_size': row[24] or 0,
+                    'scratch_size': row[25] or 0,
+                    'vgpr_count': row[26] or 0,
+                    'accum_vgpr_count': row[27] or 0,
+                    'sgpr_count': row[28] or 0,
+                    'counter_name': row[29] or '',
+                    'counter_symbol': row[30] or '',
+                    'component': row[31] or '',
+                    'description': row[32] or '',
+                    'block': row[33] or '',
+                    'expression': row[34] or '',
+                    'value_type': row[35] or '',
+                    'counter_id': row[36] or 0,
+                    'value': float(row[37]) if row[37] is not None else 0.0,
+                    'start': row[38] or 0,
+                    'end': row[39] or 0,
+                    'is_constant': row[40] or 0,
+                    'is_derived': row[41] or 0,
+                    'duration': row[42] or 0,
+                    'category': row[43] or '',
+                    'nid': row[44] or 0,
+                    'extdata': row[45] or '{}',
+                    'code_object_id': row[46] or 0,
+                    'event_type': 'counter_collection'
+                }
+                
+                self._current_events.append(RocmEventData(
+                    name="counter_collection",
+                    timestamp=row[38] or 0,  # start timestamp
+                    category='counter_collection',
+                    pid=row[8] or 0,
+                    tid=row[9] or 0,
+                    agent_id=row[10] or 0,
+                    queue_id=row[15] or 0,
+                    event_args=counter_args
+                ))
+                
+        except sqlite3.Error as e:
+            print(f"Error loading counter collection events: {e}")
+    
+    def _load_pmc_events_from_view(self):
+        """Load PMC events from the pmc_events view with full information."""
+        try:
+            cursor = self._conn.cursor()
+            
+            query = """
+            SELECT 
+                id, guid, pmc_id, event_id, category, name, nid, pid,
+                dispatch_id, start, end, duration, counter_name, counter_value
+            FROM pmc_events
+            ORDER BY start
+            """
+            cursor.execute(query)
+            
+            for row in cursor.fetchall():
+                pmc_name = row[5] or 'unknown_pmc'
+                
+                # Create comprehensive PMC event args
+                pmc_args = {
+                    'pmc_event_id': row[0] or 0,
+                    'guid': row[1] or '',
+                    'pmc_id': row[2] or 0,
+                    'event_id': row[3] or 0,
+                    'category': row[4] or '',
+                    'pmc_name': pmc_name,
+                    'nid': row[6] or 0,
+                    'pid': row[7] or 0,
+                    'dispatch_id': row[8] or 0,
+                    'start': row[9] or 0,
+                    'end': row[10] or 0,
+                    'duration': row[11] if row[11] is not None else (row[10] - row[9] if row[10] and row[9] else 0),
+                    'counter_name': row[12] or '',
+                    'counter_value': float(row[13]) if row[13] is not None else 0.0,
+                    'event_type': 'pmc_event'
+                }
+                
+                self._current_events.append(RocmEventData(
+                    name="pmc_event",
+                    timestamp=row[9] or 0,  # start timestamp
+                    category='pmc',
+                    pid=row[7] or 0,
+                    event_args=pmc_args
+                ))
+                
+        except sqlite3.Error as e:
+            print(f"Error loading PMC events from view: {e}")
+    
+    def _load_memory_allocation_events_from_view(self):
+        """Load memory allocation events from the memory_allocations view."""
+        try:
+            cursor = self._conn.cursor()
+            
+            query = """
+            SELECT 
+                id, guid, category, nid, pid, tid, start, end, duration,
+                type, level, agent_name, agent_abs_index, agent_log_index,
+                agent_type_index, agent_type, address, size, queue_id, queue_name,
+                stream_id, stream_name, stack_id, parent_stack_id, corr_id
+            FROM memory_allocations
+            ORDER BY start
+            """
+            cursor.execute(query)
+            
+            for row in cursor.fetchall():
+                # Create comprehensive memory allocation args
+                alloc_args = {
+                    'allocation_id': row[0] or 0,
+                    'guid': row[1] or '',
+                    'category': row[2] or '',
+                    'nid': row[3] or 0,
+                    'pid': row[4] or 0,
+                    'tid': row[5] or 0,
+                    'allocation_type': row[9] or '',
+                    'level': row[10] or '',
+                    'agent_name': row[11] or '',
+                    'agent_abs_index': row[12] or 0,
+                    'agent_log_index': row[13] or 0,
+                    'agent_type_index': row[14] or 0,
+                    'agent_type': row[15] or '',
+                    'address': row[16] or 0,
+                    'size': row[17] or 0,
+                    'queue_id': row[18] or 0,
+                    'queue_name': row[19] or '',
+                    'stream_id': row[20] or 0,
+                    'stream_name': row[21] or '',
+                    'stack_id': row[22] or 0,
+                    'parent_stack_id': row[23] or 0,
+                    'correlation_id': row[24] or 0,
+                    'duration': row[8] if row[8] is not None else (row[7] - row[6] if row[7] and row[6] else 0)
+                }
+                
+                # Memory allocation start event
+                start_args = alloc_args.copy()
+                start_args.update({
+                    'event_type': 'memory_allocation_start',
+                    'duration': 0
+                })
+                
+                self._current_events.append(RocmEventData(
+                    name="memory_allocation_start",
+                    timestamp=row[6],
+                    category='memory_allocation',
+                    pid=row[4],
+                    tid=row[5],
+                    queue_id=row[18],
+                    stream_id=row[20],
+                    event_args=start_args
+                ))
+                
+                # Memory allocation end event
+                end_args = alloc_args.copy()
+                end_args.update({
+                    'event_type': 'memory_allocation_end'
+                })
+                
+                self._current_events.append(RocmEventData(
+                    name="memory_allocation_end",
+                    timestamp=row[7],
+                    category='memory_allocation',
+                    pid=row[4],
+                    tid=row[5],
+                    queue_id=row[18],
+                    stream_id=row[20],
+                    event_args=end_args
+                ))
+                
+        except sqlite3.Error as e:
+            print(f"Error loading memory allocation events from view: {e}")
+    
+    def _define_pmc_event_class(self):
+        """Define the PMC event class with performance counter fields."""
+        pmc_payload_fc = self._trace_class.create_structure_field_class()
+        pmc_payload_fc.append_member("pmc_event_id", self._trace_class.create_signed_integer_field_class(64))
+        pmc_payload_fc.append_member("guid", self._trace_class.create_string_field_class())
+        pmc_payload_fc.append_member("pmc_id", self._trace_class.create_signed_integer_field_class(64))
+        pmc_payload_fc.append_member("event_id", self._trace_class.create_signed_integer_field_class(64))
+        pmc_payload_fc.append_member("category", self._trace_class.create_string_field_class())
+        pmc_payload_fc.append_member("pmc_name", self._trace_class.create_string_field_class())
+        pmc_payload_fc.append_member("nid", self._trace_class.create_signed_integer_field_class(64))
+        pmc_payload_fc.append_member("pid", self._trace_class.create_signed_integer_field_class(64))
+        pmc_payload_fc.append_member("dispatch_id", self._trace_class.create_signed_integer_field_class(64))
+        pmc_payload_fc.append_member("start", self._trace_class.create_signed_integer_field_class(64))
+        pmc_payload_fc.append_member("end", self._trace_class.create_signed_integer_field_class(64))
+        pmc_payload_fc.append_member("duration", self._trace_class.create_signed_integer_field_class(64))
+        pmc_payload_fc.append_member("counter_name", self._trace_class.create_string_field_class())
+        pmc_payload_fc.append_member("counter_value", self._trace_class.create_double_precision_real_field_class())
+        pmc_payload_fc.append_member("event_type", self._trace_class.create_string_field_class())
+        
+        pmc_event_class = self._stream_class.create_event_class(
+            name="pmc_event",
+            payload_field_class=pmc_payload_fc
+        )
+        self._event_classes["pmc_event"] = pmc_event_class
+    
     def __next__(self):
         """Return the next message."""
         if self._state == "stream_beginning":
-            self._state = "events"
+            self._state = "packet_beginning"
             return self._create_stream_beginning_message(self._stream)
+        
+        elif self._state == "packet_beginning":
+            # Create a packet for this stream
+            if not hasattr(self, '_packet'):
+                self._packet = self._stream.create_packet()
+            self._state = "events"
+            # Get the timestamp of the first event if available
+            first_timestamp = 0
+            if self._current_events:
+                first_timestamp = self._current_events[0].timestamp
+            return self._create_packet_beginning_message(self._packet, default_clock_snapshot=first_timestamp)
         
         elif self._state == "events":
             if self._event_index < len(self._current_events):
@@ -448,47 +1050,33 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                     event_class_name = "generic_event"
                     event_class = self._event_classes.get(event_class_name)
                 
-                if event_class is None:
-                    # Skip unknown event types
-                    return self.__next__()
-                
-                # Create event message
+                # Create an event message
                 msg = self._create_event_message(
                     event_class,
-                    self._stream,
+                    self._packet,
                     default_clock_snapshot=event_data.timestamp
                 )
                 
-                # Set event fields
-                if event_data.event_args:
-                    for key, value in event_data.event_args.items():
-                        if key in msg.event.payload_field:
-                            msg.event.payload_field[key] = value
+                # Set event fields based on event data
+                self._set_event_fields(msg, event_data, event_class_name)
                 
                 return msg
+            
             else:
-                self._state = "stream_end"
-                return self.__next__()
+                # No more events, end the packet
+                self._state = "packet_end"
+                # Get the timestamp of the last event for packet end
+                last_timestamp = 0
+                if self._current_events:
+                    last_timestamp = self._current_events[-1].timestamp
+                return self._create_packet_end_message(self._packet, default_clock_snapshot=last_timestamp)
         
-        elif self._state == "stream_end":
-            self._state = "done"
+        elif self._state == "packet_end":
+            # End the stream if in packet end state
+            self._state = "stream_end"
             return self._create_stream_end_message(self._stream)
         
-        else:
-            raise StopIteration
-    
-    def _get_event_class_name(self, event_name: str) -> str:
-        """Get the event class name based on event name."""
-        if "region" in event_name:
-            return "region_event"
-        elif "kernel_dispatch" in event_name:
-            return "kernel_dispatch_event"
-        elif "memory_copy" in event_name:
-            return "memory_copy_event"
-        elif "sample" in event_name:
-            return "sample_event"
-        else:
-            return "generic_event"
+        raise StopIteration
     
     def _get_event_class_name_by_category(self, event_data: RocmEventData) -> str:
         """Get the event class name based on event category and name."""
@@ -500,17 +1088,116 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                 return 'hip_runtime_region_event'
             elif category == 'hip_compiler_api_ext':
                 return 'hip_compiler_region_event'
+            elif category == 'hsa_core_api':
+                return 'hsa_core_region_event'
+            elif category == 'hsa_amd_ext_api':
+                return 'hsa_amd_ext_region_event'
+            elif category == 'marker_core_api':
+                return 'marker_core_region_event'
             elif category == 'kernel_dispatch':
-                return 'kernel_dispatch_region_event'
+                return 'kernel_dispatch_event'
             elif category == 'memory_copy':
-                return 'memory_copy_region_event'
+                return 'memory_copy_event'
+            elif category == 'memory_allocation':
+                return 'memory_allocation_event'
+            elif category == 'counter_collection':
+                return 'counter_collection_event'
+            elif category == 'pmc':
+                return 'pmc_event'
             elif "region" in event_data.name:
                 return 'region_event'
         
         # Fall back to original logic
         return self._get_event_class_name(event_data.name)
-    
-    def __del__(self):
+
+    def _get_event_class_name(self, event_name: str) -> str:
+        """Get the event class name based on event name (fallback method)."""
+        # Simple mapping based on event name patterns
+        if 'kernel_dispatch' in event_name.lower():
+            return 'kernel_dispatch_event'
+        elif 'kernel' in event_name.lower():
+            return 'kernel_dispatch_event'
+        elif 'memory_allocation' in event_name.lower():
+            return 'memory_allocation_event'
+        elif 'memory_copy' in event_name.lower():
+            return 'memory_copy_event'
+        elif 'memory' in event_name.lower():
+            return 'memory_copy_event'
+        elif 'sample' in event_name.lower():
+            return 'sample_event'
+        elif 'region' in event_name.lower():
+            return 'region_event'
+        elif 'pmc' in event_name.lower():
+            return 'pmc_event'
+        else:
+            # Default fallback
+            return 'generic_event'
+
+    def _set_event_fields(self, msg, event_data, event_class_name):
+        """Set event fields based on event data and event class type."""
+        payload = msg.event.payload_field
+        
+        # Set common fields that all events have
+        if hasattr(event_data, 'name') and event_data.name is not None:
+            if 'name' in payload:
+                payload['name'] = event_data.name
+            elif 'region_name' in payload:
+                payload['region_name'] = event_data.name
+            elif 'kernel_name' in payload:
+                payload['kernel_name'] = event_data.name
+            elif 'pmc_name' in payload:
+                payload['pmc_name'] = event_data.name
+            elif 'counter_name' in payload:
+                payload['counter_name'] = event_data.name
+        
+        if hasattr(event_data, 'category') and event_data.category is not None and 'category' in payload:
+            payload['category'] = event_data.category
+        
+        if hasattr(event_data, 'event_type') and event_data.event_type is not None and 'event_type' in payload:
+            payload['event_type'] = event_data.event_type
+            
+        if hasattr(event_data, 'duration') and event_data.duration is not None and 'duration' in payload:
+            payload['duration'] = event_data.duration
+        
+        # Set event-specific fields based on event class name
+        if event_class_name == "region_event":
+            # Region events have region_name, event_type, duration
+            pass  # Common fields already set above
+            
+        elif event_class_name == "kernel_dispatch_event":
+            # Kernel dispatch events have all the kernel fields - handled via event_args below
+            pass
+            
+        elif event_class_name == "memory_copy_event":
+            # Memory copy events have memory-specific fields - handled via event_args below
+            pass
+            
+        elif event_class_name == "memory_allocation_event":
+            # Memory allocation events have allocation-specific fields - handled via event_args below
+            pass
+            
+        elif event_class_name == "counter_collection_event":
+            # Counter collection events have counter-specific fields
+            if hasattr(event_data, 'counter_id') and event_data.counter_id is not None and 'counter_id' in payload:
+                payload['counter_id'] = event_data.counter_id
+            if hasattr(event_data, 'value') and event_data.value is not None and 'value' in payload:
+                payload['value'] = event_data.value
+            if hasattr(event_data, 'counter_symbol') and event_data.counter_symbol is not None and 'counter_symbol' in payload:
+                payload['counter_symbol'] = event_data.counter_symbol
+            if hasattr(event_data, 'description') and event_data.description is not None and 'description' in payload:
+                payload['description'] = event_data.description
+                
+        elif event_class_name == "pmc_event":
+            # PMC events have PMC-specific fields - handled via event_args below
+            pass
+                
+        # For all event types, try to set any matching fields from event_args
+        if hasattr(event_data, 'event_args') and event_data.event_args:
+            for key, value in event_data.event_args.items():
+                if key in payload and value is not None:
+                    payload[key] = value
+
+def __del__(self):
         """Cleanup database connection."""
         if hasattr(self, '_conn'):
             self._conn.close()
@@ -541,10 +1228,13 @@ class RocmSource(bt2._UserSourceComponent, message_iterator_class=RocmSourceIter
             frequency=1_000_000_000  # Nanoseconds
         )
         
-        # Create stream class
+        # Create stream class with packet support
         self._stream_class = self._trace_class.create_stream_class(
             name="rocm_stream",
-            default_clock_class=self._clock_class
+            default_clock_class=self._clock_class,
+            supports_packets=True,
+            packets_have_beginning_default_clock_snapshot=True,
+            packets_have_end_default_clock_snapshot=True
         )
         
         # Create event classes
@@ -589,81 +1279,141 @@ class RocmSource(bt2._UserSourceComponent, message_iterator_class=RocmSourceIter
         )
         event_classes["region_event"] = region_event_class
         
-        # Kernel dispatch event class
+        # Kernel dispatch event class (comprehensive)
         kernel_payload_fc = self._trace_class.create_structure_field_class()
-        kernel_payload_fc.append_member(
-            "kernel_name", self._trace_class.create_string_field_class()
-        )
-        kernel_payload_fc.append_member(
-            "event_type", self._trace_class.create_string_field_class()
-        )
-        kernel_payload_fc.append_member(
-            "dispatch_id", self._trace_class.create_signed_integer_field_class(64)
-        )
-        kernel_payload_fc.append_member(
-            "queue_id", self._trace_class.create_signed_integer_field_class(64)
-        )
-        kernel_payload_fc.append_member(
-            "stream_id", self._trace_class.create_signed_integer_field_class(64)
-        )
-        kernel_payload_fc.append_member(
-            "workgroup_size", self._trace_class.create_string_field_class()
-        )
-        kernel_payload_fc.append_member(
-            "grid_size", self._trace_class.create_string_field_class()
-        )
-        kernel_payload_fc.append_member(
-            "duration", self._trace_class.create_signed_integer_field_class(64)
-        )
+        kernel_payload_fc.append_member("kernel_id", self._trace_class.create_signed_integer_field_class(64))
+        kernel_payload_fc.append_member("guid", self._trace_class.create_string_field_class())
+        kernel_payload_fc.append_member("tid", self._trace_class.create_signed_integer_field_class(64))
+        kernel_payload_fc.append_member("category", self._trace_class.create_string_field_class())
+        kernel_payload_fc.append_member("region", self._trace_class.create_string_field_class())
+        kernel_payload_fc.append_member("kernel_name", self._trace_class.create_string_field_class())
+        kernel_payload_fc.append_member("nid", self._trace_class.create_signed_integer_field_class(64))
+        kernel_payload_fc.append_member("pid", self._trace_class.create_signed_integer_field_class(64))
+        kernel_payload_fc.append_member("agent_abs_index", self._trace_class.create_signed_integer_field_class(64))
+        kernel_payload_fc.append_member("agent_log_index", self._trace_class.create_signed_integer_field_class(64))
+        kernel_payload_fc.append_member("agent_type_index", self._trace_class.create_signed_integer_field_class(64))
+        kernel_payload_fc.append_member("agent_type", self._trace_class.create_string_field_class())
+        kernel_payload_fc.append_member("code_object_id", self._trace_class.create_signed_integer_field_class(64))
+        kernel_payload_fc.append_member("kernel_symbol_id", self._trace_class.create_signed_integer_field_class(64))
+        kernel_payload_fc.append_member("dispatch_id", self._trace_class.create_signed_integer_field_class(64))
+        kernel_payload_fc.append_member("stream_id", self._trace_class.create_signed_integer_field_class(64))
+        kernel_payload_fc.append_member("queue_id", self._trace_class.create_signed_integer_field_class(64))
+        kernel_payload_fc.append_member("queue_name", self._trace_class.create_string_field_class())
+        kernel_payload_fc.append_member("stream_name", self._trace_class.create_string_field_class())
+        kernel_payload_fc.append_member("grid_size_x", self._trace_class.create_signed_integer_field_class(64))
+        kernel_payload_fc.append_member("grid_size_y", self._trace_class.create_signed_integer_field_class(64))
+        kernel_payload_fc.append_member("grid_size_z", self._trace_class.create_signed_integer_field_class(64))
+        kernel_payload_fc.append_member("workgroup_size_x", self._trace_class.create_signed_integer_field_class(64))
+        kernel_payload_fc.append_member("workgroup_size_y", self._trace_class.create_signed_integer_field_class(64))
+        kernel_payload_fc.append_member("workgroup_size_z", self._trace_class.create_signed_integer_field_class(64))
+        kernel_payload_fc.append_member("lds_size", self._trace_class.create_signed_integer_field_class(64))
+        kernel_payload_fc.append_member("scratch_size", self._trace_class.create_signed_integer_field_class(64))
+        kernel_payload_fc.append_member("static_lds_size", self._trace_class.create_signed_integer_field_class(64))
+        kernel_payload_fc.append_member("static_scratch_size", self._trace_class.create_signed_integer_field_class(64))
+        kernel_payload_fc.append_member("stack_id", self._trace_class.create_signed_integer_field_class(64))
+        kernel_payload_fc.append_member("parent_stack_id", self._trace_class.create_signed_integer_field_class(64))
+        kernel_payload_fc.append_member("correlation_id", self._trace_class.create_signed_integer_field_class(64))
+        kernel_payload_fc.append_member("duration", self._trace_class.create_signed_integer_field_class(64))
+        kernel_payload_fc.append_member("event_type", self._trace_class.create_string_field_class())
         kernel_event_class = self._stream_class.create_event_class(
             name="kernel_dispatch_event",
             payload_field_class=kernel_payload_fc
         )
         event_classes["kernel_dispatch_event"] = kernel_event_class
-        
-        # Memory copy event class
+
+        # Memory copy event class (comprehensive)
         memory_payload_fc = self._trace_class.create_structure_field_class()
-        memory_payload_fc.append_member(
-            "copy_name", self._trace_class.create_string_field_class()
-        )
-        memory_payload_fc.append_member(
-            "event_type", self._trace_class.create_string_field_class()
-        )
-        memory_payload_fc.append_member(
-            "size", self._trace_class.create_signed_integer_field_class(64)
-        )
-        memory_payload_fc.append_member(
-            "dst_agent_id", self._trace_class.create_signed_integer_field_class(64)
-        )
-        memory_payload_fc.append_member(
-            "src_agent_id", self._trace_class.create_signed_integer_field_class(64)
-        )
-        memory_payload_fc.append_member(
-            "duration", self._trace_class.create_signed_integer_field_class(64)
-        )
+        memory_payload_fc.append_member("copy_id", self._trace_class.create_signed_integer_field_class(64))
+        memory_payload_fc.append_member("guid", self._trace_class.create_string_field_class())
+        memory_payload_fc.append_member("category", self._trace_class.create_string_field_class())
+        memory_payload_fc.append_member("nid", self._trace_class.create_signed_integer_field_class(64))
+        memory_payload_fc.append_member("pid", self._trace_class.create_signed_integer_field_class(64))
+        memory_payload_fc.append_member("tid", self._trace_class.create_signed_integer_field_class(64))
+        memory_payload_fc.append_member("copy_name", self._trace_class.create_string_field_class())
+        memory_payload_fc.append_member("region_name", self._trace_class.create_string_field_class())
+        memory_payload_fc.append_member("stream_id", self._trace_class.create_signed_integer_field_class(64))
+        memory_payload_fc.append_member("queue_id", self._trace_class.create_signed_integer_field_class(64))
+        memory_payload_fc.append_member("stream_name", self._trace_class.create_string_field_class())
+        memory_payload_fc.append_member("queue_name", self._trace_class.create_string_field_class())
+        memory_payload_fc.append_member("size", self._trace_class.create_signed_integer_field_class(64))
+        memory_payload_fc.append_member("dst_device", self._trace_class.create_string_field_class())
+        memory_payload_fc.append_member("dst_agent_abs_index", self._trace_class.create_signed_integer_field_class(64))
+        memory_payload_fc.append_member("dst_agent_log_index", self._trace_class.create_signed_integer_field_class(64))
+        memory_payload_fc.append_member("dst_agent_type_index", self._trace_class.create_signed_integer_field_class(64))
+        memory_payload_fc.append_member("dst_agent_type", self._trace_class.create_string_field_class())
+        memory_payload_fc.append_member("dst_address", self._trace_class.create_signed_integer_field_class(64))
+        memory_payload_fc.append_member("src_device", self._trace_class.create_string_field_class())
+        memory_payload_fc.append_member("src_agent_abs_index", self._trace_class.create_signed_integer_field_class(64))
+        memory_payload_fc.append_member("src_agent_log_index", self._trace_class.create_signed_integer_field_class(64))
+        memory_payload_fc.append_member("src_agent_type_index", self._trace_class.create_signed_integer_field_class(64))
+        memory_payload_fc.append_member("src_agent_type", self._trace_class.create_string_field_class())
+        memory_payload_fc.append_member("src_address", self._trace_class.create_signed_integer_field_class(64))
+        memory_payload_fc.append_member("stack_id", self._trace_class.create_signed_integer_field_class(64))
+        memory_payload_fc.append_member("parent_stack_id", self._trace_class.create_signed_integer_field_class(64))
+        memory_payload_fc.append_member("correlation_id", self._trace_class.create_signed_integer_field_class(64))
+        memory_payload_fc.append_member("duration", self._trace_class.create_signed_integer_field_class(64))
+        memory_payload_fc.append_member("event_type", self._trace_class.create_string_field_class())
         memory_event_class = self._stream_class.create_event_class(
             name="memory_copy_event",
             payload_field_class=memory_payload_fc
         )
         event_classes["memory_copy_event"] = memory_event_class
-        
-        # Sample event class
+
+        # Memory allocation event class (separate from memory copy)
+        memory_alloc_payload_fc = self._trace_class.create_structure_field_class()
+        memory_alloc_payload_fc.append_member("allocation_id", self._trace_class.create_signed_integer_field_class(64))
+        memory_alloc_payload_fc.append_member("guid", self._trace_class.create_string_field_class())
+        memory_alloc_payload_fc.append_member("category", self._trace_class.create_string_field_class())
+        memory_alloc_payload_fc.append_member("nid", self._trace_class.create_signed_integer_field_class(64))
+        memory_alloc_payload_fc.append_member("pid", self._trace_class.create_signed_integer_field_class(64))
+        memory_alloc_payload_fc.append_member("tid", self._trace_class.create_signed_integer_field_class(64))
+        memory_alloc_payload_fc.append_member("allocation_type", self._trace_class.create_string_field_class())
+        memory_alloc_payload_fc.append_member("level", self._trace_class.create_string_field_class())
+        memory_alloc_payload_fc.append_member("agent_name", self._trace_class.create_string_field_class())
+        memory_alloc_payload_fc.append_member("agent_abs_index", self._trace_class.create_signed_integer_field_class(64))
+        memory_alloc_payload_fc.append_member("agent_log_index", self._trace_class.create_signed_integer_field_class(64))
+        memory_alloc_payload_fc.append_member("agent_type_index", self._trace_class.create_signed_integer_field_class(64))
+        memory_alloc_payload_fc.append_member("agent_type", self._trace_class.create_string_field_class())
+        memory_alloc_payload_fc.append_member("address", self._trace_class.create_signed_integer_field_class(64))
+        memory_alloc_payload_fc.append_member("size", self._trace_class.create_signed_integer_field_class(64))
+        memory_alloc_payload_fc.append_member("queue_id", self._trace_class.create_signed_integer_field_class(64))
+        memory_alloc_payload_fc.append_member("queue_name", self._trace_class.create_string_field_class())
+        memory_alloc_payload_fc.append_member("stream_id", self._trace_class.create_signed_integer_field_class(64))
+        memory_alloc_payload_fc.append_member("stream_name", self._trace_class.create_string_field_class())
+        memory_alloc_payload_fc.append_member("stack_id", self._trace_class.create_signed_integer_field_class(64))
+        memory_alloc_payload_fc.append_member("parent_stack_id", self._trace_class.create_signed_integer_field_class(64))
+        memory_alloc_payload_fc.append_member("correlation_id", self._trace_class.create_signed_integer_field_class(64))
+        memory_alloc_payload_fc.append_member("duration", self._trace_class.create_signed_integer_field_class(64))
+        memory_alloc_payload_fc.append_member("event_type", self._trace_class.create_string_field_class())
+        memory_alloc_event_class = self._stream_class.create_event_class(
+            name="memory_allocation_event",
+            payload_field_class=memory_alloc_payload_fc
+        )
+        event_classes["memory_allocation_event"] = memory_alloc_event_class
+
+        # Sample event class (comprehensive)
         sample_payload_fc = self._trace_class.create_structure_field_class()
-        sample_payload_fc.append_member(
-            "track_name", self._trace_class.create_string_field_class()
-        )
-        sample_payload_fc.append_member(
-            "event_type", self._trace_class.create_string_field_class()
-        )
-        sample_payload_fc.append_member(
-            "track_id", self._trace_class.create_signed_integer_field_class(64)
-        )
+        sample_payload_fc.append_member("sample_id", self._trace_class.create_signed_integer_field_class(64))
+        sample_payload_fc.append_member("guid", self._trace_class.create_string_field_class())
+        sample_payload_fc.append_member("category", self._trace_class.create_string_field_class())
+        sample_payload_fc.append_member("sample_name", self._trace_class.create_string_field_class())
+        sample_payload_fc.append_member("nid", self._trace_class.create_signed_integer_field_class(64))
+        sample_payload_fc.append_member("pid", self._trace_class.create_signed_integer_field_class(64))
+        sample_payload_fc.append_member("tid", self._trace_class.create_signed_integer_field_class(64))
+        sample_payload_fc.append_member("event_id", self._trace_class.create_signed_integer_field_class(64))
+        sample_payload_fc.append_member("stack_id", self._trace_class.create_signed_integer_field_class(64))
+        sample_payload_fc.append_member("parent_stack_id", self._trace_class.create_signed_integer_field_class(64))
+        sample_payload_fc.append_member("correlation_id", self._trace_class.create_signed_integer_field_class(64))
+        sample_payload_fc.append_member("extdata", self._trace_class.create_string_field_class())
+        sample_payload_fc.append_member("call_stack", self._trace_class.create_string_field_class())
+        sample_payload_fc.append_member("line_info", self._trace_class.create_string_field_class())
+        sample_payload_fc.append_member("event_type", self._trace_class.create_string_field_class())
         sample_event_class = self._stream_class.create_event_class(
             name="sample_event",
             payload_field_class=sample_payload_fc
         )
         event_classes["sample_event"] = sample_event_class
-        
+
         # Generic event class
         generic_payload_fc = self._trace_class.create_structure_field_class()
         generic_payload_fc.append_member(
@@ -674,55 +1424,160 @@ class RocmSource(bt2._UserSourceComponent, message_iterator_class=RocmSourceIter
             payload_field_class=generic_payload_fc
         )
         event_classes["generic_event"] = generic_event_class
-        
+
         # Create a comprehensive field class for region events with all possible information
         def create_region_field_class():
             fc = self._trace_class.create_structure_field_class()
+            fc.append_member("region_id", self._trace_class.create_signed_integer_field_class(64))
+            fc.append_member("guid", self._trace_class.create_string_field_class())
             fc.append_member("region_name", self._trace_class.create_string_field_class())
             fc.append_member("event_type", self._trace_class.create_string_field_class())
             fc.append_member("category", self._trace_class.create_string_field_class())
-            fc.append_member("process_name", self._trace_class.create_string_field_class())
-            fc.append_member("thread_name", self._trace_class.create_string_field_class())
+            fc.append_member("nid", self._trace_class.create_signed_integer_field_class(64))
             fc.append_member("pid", self._trace_class.create_signed_integer_field_class(64))
             fc.append_member("tid", self._trace_class.create_signed_integer_field_class(64))
-            fc.append_member("nid", self._trace_class.create_signed_integer_field_class(64))
+            fc.append_member("event_id", self._trace_class.create_signed_integer_field_class(64))
+            fc.append_member("stack_id", self._trace_class.create_signed_integer_field_class(64))
+            fc.append_member("parent_stack_id", self._trace_class.create_signed_integer_field_class(64))
             fc.append_member("correlation_id", self._trace_class.create_signed_integer_field_class(64))
             fc.append_member("duration", self._trace_class.create_signed_integer_field_class(64))
             fc.append_member("extdata", self._trace_class.create_string_field_class())
             fc.append_member("call_stack", self._trace_class.create_string_field_class())
             fc.append_member("line_info", self._trace_class.create_string_field_class())
             return fc
-        
+
         # HIP Runtime API region events
         hip_runtime_region_event_class = self._stream_class.create_event_class(
             name="hip_runtime_region_event",
             payload_field_class=create_region_field_class()
         )
         event_classes["hip_runtime_region_event"] = hip_runtime_region_event_class
-        
+
         # HIP Compiler API region events
         hip_compiler_region_event_class = self._stream_class.create_event_class(
             name="hip_compiler_region_event",
             payload_field_class=create_region_field_class()
         )
         event_classes["hip_compiler_region_event"] = hip_compiler_region_event_class
-        
+
+        # HSA Core API region events
+        hsa_core_region_event_class = self._stream_class.create_event_class(
+            name="hsa_core_region_event",
+            payload_field_class=create_region_field_class()
+        )
+        event_classes["hsa_core_region_event"] = hsa_core_region_event_class
+
+        # HSA AMD Extension API region events
+        hsa_amd_ext_region_event_class = self._stream_class.create_event_class(
+            name="hsa_amd_ext_region_event",
+            payload_field_class=create_region_field_class()
+        )
+        event_classes["hsa_amd_ext_region_event"] = hsa_amd_ext_region_event_class
+
+        # Marker Core API region events
+        marker_core_region_event_class = self._stream_class.create_event_class(
+            name="marker_core_region_event",
+            payload_field_class=create_region_field_class()
+        )
+        event_classes["marker_core_region_event"] = marker_core_region_event_class
+
         # Kernel Dispatch region events
         kernel_dispatch_region_event_class = self._stream_class.create_event_class(
             name="kernel_dispatch_region_event",
             payload_field_class=create_region_field_class()
         )
         event_classes["kernel_dispatch_region_event"] = kernel_dispatch_region_event_class
-        
+
         # Memory Copy region events
         memory_copy_region_event_class = self._stream_class.create_event_class(
             name="memory_copy_region_event",
             payload_field_class=create_region_field_class()
         )
         event_classes["memory_copy_region_event"] = memory_copy_region_event_class
-        
+
+        # Counter Collection event class
+        counter_collection_payload_fc = self._trace_class.create_structure_field_class()
+        counter_collection_payload_fc.append_member("id", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("guid", self._trace_class.create_string_field_class())
+        counter_collection_payload_fc.append_member("dispatch_id", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("kernel_id", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("event_id", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("correlation_id", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("stack_id", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("parent_stack_id", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("pid", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("tid", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("agent_id", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("agent_abs_index", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("agent_log_index", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("agent_type_index", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("agent_type", self._trace_class.create_string_field_class())
+        counter_collection_payload_fc.append_member("queue_id", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("grid_size_x", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("grid_size_y", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("grid_size_z", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("kernel_name", self._trace_class.create_string_field_class())
+        counter_collection_payload_fc.append_member("kernel_region", self._trace_class.create_string_field_class())
+        counter_collection_payload_fc.append_member("workgroup_size_x", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("workgroup_size_y", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("workgroup_size_z", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("lds_block_size", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("scratch_size", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("vgpr_count", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("accum_vgpr_count", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("sgpr_count", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("counter_name", self._trace_class.create_string_field_class())
+        counter_collection_payload_fc.append_member("counter_symbol", self._trace_class.create_string_field_class())
+        counter_collection_payload_fc.append_member("component", self._trace_class.create_string_field_class())
+        counter_collection_payload_fc.append_member("description", self._trace_class.create_string_field_class())
+        counter_collection_payload_fc.append_member("block", self._trace_class.create_string_field_class())
+        counter_collection_payload_fc.append_member("expression", self._trace_class.create_string_field_class())
+        counter_collection_payload_fc.append_member("value_type", self._trace_class.create_string_field_class())
+        counter_collection_payload_fc.append_member("counter_id", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("value", self._trace_class.create_double_precision_real_field_class())
+        counter_collection_payload_fc.append_member("start", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("end", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("is_constant", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("is_derived", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("duration", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("category", self._trace_class.create_string_field_class())
+        counter_collection_payload_fc.append_member("nid", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("extdata", self._trace_class.create_string_field_class())
+        counter_collection_payload_fc.append_member("code_object_id", self._trace_class.create_signed_integer_field_class(64))
+        counter_collection_payload_fc.append_member("event_type", self._trace_class.create_string_field_class())
+
+        counter_collection_event_class = self._stream_class.create_event_class(
+            name="counter_collection_event",
+            payload_field_class=counter_collection_payload_fc
+        )
+        event_classes["counter_collection_event"] = counter_collection_event_class
+
+        # PMC Event class
+        pmc_payload_fc = self._trace_class.create_structure_field_class()
+        pmc_payload_fc.append_member("pmc_event_id", self._trace_class.create_signed_integer_field_class(64))
+        pmc_payload_fc.append_member("guid", self._trace_class.create_string_field_class())
+        pmc_payload_fc.append_member("pmc_id", self._trace_class.create_signed_integer_field_class(64))
+        pmc_payload_fc.append_member("event_id", self._trace_class.create_signed_integer_field_class(64))
+        pmc_payload_fc.append_member("category", self._trace_class.create_string_field_class())
+        pmc_payload_fc.append_member("pmc_name", self._trace_class.create_string_field_class())
+        pmc_payload_fc.append_member("nid", self._trace_class.create_signed_integer_field_class(64))
+        pmc_payload_fc.append_member("pid", self._trace_class.create_signed_integer_field_class(64))
+        pmc_payload_fc.append_member("dispatch_id", self._trace_class.create_signed_integer_field_class(64))
+        pmc_payload_fc.append_member("start", self._trace_class.create_signed_integer_field_class(64))
+        pmc_payload_fc.append_member("end", self._trace_class.create_signed_integer_field_class(64))
+        pmc_payload_fc.append_member("duration", self._trace_class.create_signed_integer_field_class(64))
+        pmc_payload_fc.append_member("counter_name", self._trace_class.create_string_field_class())
+        pmc_payload_fc.append_member("counter_value", self._trace_class.create_double_precision_real_field_class())
+        pmc_payload_fc.append_member("event_type", self._trace_class.create_string_field_class())
+
+        pmc_event_class = self._stream_class.create_event_class(
+            name="pmc_event",
+            payload_field_class=pmc_payload_fc
+        )
+        event_classes["pmc_event"] = pmc_event_class
+
         return event_classes
-    
+
     @staticmethod
     def _user_query(priv_executor, obj, query, params):
         """Handle query requests."""
@@ -731,41 +1586,43 @@ class RocmSource(bt2._UserSourceComponent, message_iterator_class=RocmSourceIter
             input_value = params.get('input')
             if not input_value:
                 return {'weight': 0.0}
-            
+
             # Check if it's a file path
             if not isinstance(input_value, str):
                 return {'weight': 0.0}
-            
+
             # Check if file exists and is SQLite
             if not os.path.exists(input_value):
                 return {'weight': 0.0}
-            
+
             try:
                 # Quick check if it's a SQLite database with ROCm tables
                 conn = sqlite3.connect(input_value)
                 cursor = conn.cursor()
-                
+
                 # Check for ROCm-specific tables
                 cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'rocpd_%'")
                 rocm_tables = cursor.fetchall()
-                
+
                 conn.close()
-                
+
                 if rocm_tables:
                     return {'weight': 1.0}  # Perfect match
                 else:
                     return {'weight': 0.0}  # Not a ROCm database
-                    
+
             except Exception:
                 return {'weight': 0.0}
-        
+
         elif query == "babeltrace.mip-version":
             # Declare MIP version support
-            return 1  # Support MIP version 1
-        
+            return 0  # Support MIP version 0
+
+       
+
         return None
 
     @classmethod
     def _user_get_supported_mip_versions(cls, params, obj, log_level):
         """Return the supported MIP versions."""
-        return [1]
+        return [0]

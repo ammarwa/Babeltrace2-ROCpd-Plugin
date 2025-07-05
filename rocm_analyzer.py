@@ -345,16 +345,33 @@ class RocmDataExtractor:
         events = []
         try:
             cursor = self.conn.cursor()
-            query = """
-            SELECT 
-                m.start, m.end, m.nid, m.pid, m.tid,
-                m.size, m.agent_id, m.ptr,
-                s.string as name
-            FROM rocpd_memory_allocate m
-            JOIN rocpd_string s ON m.name_id = s.id
-            ORDER BY m.start
-            LIMIT 50
-            """
+            
+            # Check if name_id column exists in the memory allocation table
+            cursor.execute("PRAGMA table_info(rocpd_memory_allocate)")
+            columns = [col[1] for col in cursor.fetchall()]
+            has_name_id = 'name_id' in columns
+            
+            if has_name_id:
+                query = """
+                SELECT 
+                    m.start, m.end, m.nid, m.pid, m.tid,
+                    m.size, m.agent_id, m.address as ptr,
+                    s.string as name
+                FROM rocpd_memory_allocate m
+                JOIN rocpd_string s ON m.name_id = s.id
+                ORDER BY m.start
+                LIMIT 50
+                """
+            else:
+                query = """
+                SELECT 
+                    m.start, m.end, m.nid, m.pid, m.tid,
+                    m.size, m.agent_id, m.address as ptr,
+                    'memory_allocation' as name
+                FROM rocpd_memory_allocate m
+                ORDER BY m.start
+                LIMIT 50
+                """
             cursor.execute(query)
             
             for row in cursor.fetchall():
