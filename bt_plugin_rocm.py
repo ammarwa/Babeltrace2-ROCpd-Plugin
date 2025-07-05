@@ -761,11 +761,11 @@ class RocmSource(bt2._UserSourceComponent, message_iterator_class=RocmSourceIter
         
         elif query == "babeltrace.mip-version":
             # Declare MIP version support
-            return 0  # Support MIP version 0
+            return 1  # Support MIP version 1
         
         return None
 
     @classmethod
     def _user_get_supported_mip_versions(cls, params, obj, log_level):
         """Return the supported MIP versions."""
-        return [(0, 0)]
+        return [1]
