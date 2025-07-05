@@ -90,12 +90,3 @@ The plugin handles various error conditions:
 - **Sorted output**: Events are sorted by timestamp for proper trace ordering
 - **Database optimization**: Uses indexes for efficient querying
 
-## Contributing
-
-To extend the plugin:
-
-1. Add new event types by extending `_load_*_events()` methods
-2. Add new event classes in `_create_event_classes()`
-3. Update the event class name mapping in `_get_event_class_name()`
-4. Test with various ROCm profiler database formats
-
