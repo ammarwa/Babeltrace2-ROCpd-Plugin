@@ -1,0 +1,23 @@
+[project]
+name = "bt2_rocm_plugin"
+version = "0.0.1"
+authors = [
+  { name="Ammar ELWazir", email="ammar.elwazir@amd.com" },
+]
+description = "Babeltrace2 ROCpd output conversion plugin, converting from ROCpd SQLite3 database to CTF output"
+readme = "README.md"
+requires-python = ">=3.6"
+dependencies = [
+    "typing",
+    "dataclasses",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+license = "MIT"
+license-files = ["LICEN[CS]E*"]
+
+[project.urls]
+Homepage = "https://github.com/ammarwa/Babeltrace2-ROCpd-Plugin"
+Issues = "https://github.com/ammarwa/Babeltrace2-ROCpd-Plugin/issues"
