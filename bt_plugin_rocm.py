@@ -75,7 +75,7 @@ class RocmEventData:
 
 class RocmSourceIterator(bt2._UserMessageIterator):
     """Iterator for the ROCm source component."""
-    
+
     def __init__(self, config, output_port):
         """Initialize the iterator."""
         self._db_path = output_port.user_data['db_path']
@@ -83,27 +83,27 @@ class RocmSourceIterator(bt2._UserMessageIterator):
         self._stream_class = output_port.user_data['stream_class']
         self._event_classes = output_port.user_data['event_classes']
         self._clock_class = output_port.user_data['clock_class']
-        
+
         # Create trace and stream instances
         self._trace = self._trace_class()
         self._stream = self._trace.create_stream(self._stream_class)
-        
+
         # Initialize database connection
         self._conn = sqlite3.connect(self._db_path)
         self._conn.row_factory = sqlite3.Row
-        
+
         # State management
         self._state = "stream_beginning"
         self._event_iterator = None
         self._current_events = []
         self._event_index = 0
-        
+
         # Get database UUID and GUID for table names
         self._uuid, self._guid = self._get_db_metadata()
-        
+
         # Load all events
         self._load_events()
-    
+
     def _get_db_metadata(self) -> tuple:
         """Get UUID and GUID from database metadata."""
         try:
@@ -137,7 +137,7 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                 pass
             # If all else fails, use empty string (tables might not have UUID suffix)
             return '', ''
-    
+
     def _table_exists(self, table_name: str) -> bool:
         """Check if a table or view exists in the database."""
         try:
@@ -149,62 +149,62 @@ class RocmSourceIterator(bt2._UserMessageIterator):
             return cursor.fetchone() is not None
         except sqlite3.Error:
             return False
-    
+
     def _load_events(self):
         """Load all events from the database using views."""
         self._current_events = []
-        
+
         # Load different types of events from views, handling missing views gracefully
         if self._table_exists('regions'):
             self._load_region_events_from_view()
         else:
             print("Warning: View 'regions' not found")
-            
+
         if self._table_exists('kernels'):
             self._load_kernel_events_from_view()
         else:
             print("Warning: View 'kernels' not found")
-            
+
         if self._table_exists('memory_copies'):
             self._load_memory_copy_events_from_view()
         else:
             print("Warning: View 'memory_copies' not found")
-            
+
         if self._table_exists('samples'):
             self._load_sample_events_from_view()
         else:
             print("Warning: View 'samples' not found")
-            
+
         # Load PMC events
         if self._table_exists('pmc_events'):
             self._load_pmc_events_from_view()
         else:
             print("Warning: View 'pmc_events' not found")
-            
+
         # Load memory allocation events
         if self._table_exists('memory_allocations'):
             self._load_memory_allocation_events_from_view()
         else:
             print("Warning: View 'memory_allocations' not found")
-            
+
         # Load counter collection events
         if self._table_exists('counters_collection'):
             self._load_counter_collection_events()
         else:
             print("Warning: View 'counters_collection' not found")
-        
+
         # Sort events by timestamp
         self._current_events.sort(key=lambda x: x.timestamp)
-        
+
         print(f"Loaded {len(self._current_events)} events from database")
-    
+
     def _load_region_events_from_view(self):
         """Load region events from the regions view with full information."""
         try:
             cursor = self._conn.cursor()
-            
+
             query = """
-            SELECT 
+            SELECT
                 id, guid, category, name, nid, pid, tid, start, end, duration,
                 event_id, stack_id, parent_stack_id, corr_id, extdata,
                 call_stack, line_info
@@ -212,11 +212,11 @@ class RocmSourceIterator(bt2._UserMessageIterator):
             ORDER BY start
             """
             cursor.execute(query)
-            
+
             for row in cursor.fetchall():
                 category = row[2].lower() if row[2] else 'unknown'
                 duration = row[9] if row[9] is not None else (row[8] - row[7] if row[8] and row[7] else 0)
-                
+
                 # Create comprehensive event args
                 common_args = {
                     'region_id': row[0] or 0,
@@ -234,14 +234,14 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                     'call_stack': str(row[15]) if row[15] else '{}',
                     'line_info': str(row[16]) if row[16] else '{}'
                 }
-                
+
                 # Region start event
                 start_args = common_args.copy()
                 start_args.update({
                     'event_type': 'region_start',
                     'duration': 0
                 })
-                
+
                 self._current_events.append(RocmEventData(
                     name=f"{row[3]}_start",
                     timestamp=row[7],
@@ -250,14 +250,14 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                     tid=row[6],
                     event_args=start_args
                 ))
-                
+
                 # Region end event
                 end_args = common_args.copy()
                 end_args.update({
                     'event_type': 'region_end',
                     'duration': duration
                 })
-                
+
                 self._current_events.append(RocmEventData(
                     name=f"{row[3]}_end",
                     timestamp=row[8],
@@ -266,10 +266,10 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                     tid=row[6],
                     event_args=end_args
                 ))
-                
+
         except sqlite3.Error as e:
             print(f"Error loading region events from view: {e}")
-    
+
     def _load_region_events(self):
         """Load region events from the database with category-based classification."""
         try:
@@ -280,9 +280,9 @@ class RocmSourceIterator(bt2._UserMessageIterator):
             event_table_name = f'rocpd_event{self._uuid}' if self._uuid else 'rocpd_event'
             process_table_name = f'rocpd_info_process{self._uuid}' if self._uuid else 'rocpd_info_process'
             thread_table_name = f'rocpd_info_thread{self._uuid}' if self._uuid else 'rocpd_info_thread'
-            
+
             query = f"""
-            SELECT 
+            SELECT
                 r.start, r.end, r.nid, r.pid, r.tid,
                 s1.string as region_name,
                 COALESCE(s2.string, 'unknown') as category,
@@ -301,11 +301,11 @@ class RocmSourceIterator(bt2._UserMessageIterator):
             ORDER BY r.start
             """
             cursor.execute(query)
-            
+
             for row in cursor.fetchall():
                 category = row['category'].lower() if row['category'] != 'unknown' else 'unknown'
                 duration = row['end'] - row['start']
-                
+
                 # Create comprehensive event args
                 common_args = {
                     'region_name': row['region_name'],
@@ -320,14 +320,14 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                     'call_stack': row['call_stack'] or '{}',
                     'line_info': row['line_info'] or '{}'
                 }
-                
+
                 # Region start event
                 start_args = common_args.copy()
                 start_args.update({
                     'event_type': 'region_start',
                     'duration': 0
                 })
-                
+
                 self._current_events.append(RocmEventData(
                     name=f"{row['region_name']}_start",
                     timestamp=row['start'],
@@ -336,14 +336,14 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                     tid=row['tid'],
                     event_args=start_args
                 ))
-                
+
                 # Region end event
                 end_args = common_args.copy()
                 end_args.update({
                     'event_type': 'region_end',
                     'duration': duration
                 })
-                
+
                 self._current_events.append(RocmEventData(
                     name=f"{row['region_name']}_end",
                     timestamp=row['end'],
@@ -352,17 +352,17 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                     tid=row['tid'],
                     event_args=end_args
                 ))
-                
+
         except sqlite3.Error as e:
             print(f"Error loading region events: {e}")
-    
+
     def _load_kernel_events_from_view(self):
         """Load kernel events from the kernels view with full information."""
         try:
             cursor = self._conn.cursor()
-            
+
             query = """
-            SELECT 
+            SELECT
                 id, guid, tid, category, region, name, nid, pid,
                 agent_abs_index, agent_log_index, agent_type_index, agent_type,
                 code_object_id, kernel_id, dispatch_id, stream_id, queue_id,
@@ -374,10 +374,10 @@ class RocmSourceIterator(bt2._UserMessageIterator):
             ORDER BY start
             """
             cursor.execute(query)
-            
+
             for row in cursor.fetchall():
                 kernel_name = row[5] or 'unknown_kernel'
-                
+
                 # Create comprehensive kernel args
                 kernel_args = {
                     'kernel_id': row[0] or 0,
@@ -414,14 +414,14 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                     'correlation_id': row[34] or 0,
                     'duration': row[21] if row[21] is not None else (row[20] - row[19] if row[20] and row[19] else 0)
                 }
-                
+
                 # Kernel dispatch start event
                 start_args = kernel_args.copy()
                 start_args.update({
                     'event_type': 'kernel_dispatch_start',
                     'duration': 0
                 })
-                
+
                 self._current_events.append(RocmEventData(
                     name=f"kernel_dispatch_start",
                     timestamp=row[19],
@@ -432,13 +432,13 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                     queue_id=row[16],
                     event_args=start_args
                 ))
-                
+
                 # Kernel dispatch end event
                 end_args = kernel_args.copy()
                 end_args.update({
                     'event_type': 'kernel_dispatch_end'
                 })
-                
+
                 self._current_events.append(RocmEventData(
                     name=f"kernel_dispatch_end",
                     timestamp=row[20],
@@ -449,10 +449,10 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                     queue_id=row[16],
                     event_args=end_args
                 ))
-                
+
         except sqlite3.Error as e:
             print(f"Error loading kernel events from view: {e}")
-    
+
     def _load_kernel_dispatch_events(self):
         """Load kernel dispatch events from the database."""
         try:
@@ -460,9 +460,9 @@ class RocmSourceIterator(bt2._UserMessageIterator):
             # Handle different table naming patterns
             kd_table = f'rocpd_kernel_dispatch{self._uuid}' if self._uuid else 'rocpd_kernel_dispatch'
             ks_table = f'rocpd_info_kernel_symbol{self._uuid}' if self._uuid else 'rocpd_info_kernel_symbol'
-            
+
             query = f"""
-            SELECT 
+            SELECT
                 k.start, k.end, k.nid, k.pid, k.tid, k.agent_id,
                 k.dispatch_id, k.queue_id, k.stream_id,
                 k.workgroup_size_x, k.workgroup_size_y, k.workgroup_size_z,
@@ -474,10 +474,10 @@ class RocmSourceIterator(bt2._UserMessageIterator):
             ORDER BY k.start
             """
             cursor.execute(query)
-            
+
             for row in cursor.fetchall():
                 kernel_name = row['kernel_name'] or row['display_name'] or 'unknown_kernel'
-                
+
                 # Kernel dispatch start event
                 self._current_events.append(RocmEventData(
                     name=f"kernel_dispatch_start",
@@ -496,7 +496,7 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                         'event_type': 'kernel_dispatch_start'
                     }
                 ))
-                
+
                 # Kernel dispatch end event
                 self._current_events.append(RocmEventData(
                     name=f"kernel_dispatch_end",
@@ -512,17 +512,17 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                         'duration': row['end'] - row['start']
                     }
                 ))
-                
+
         except sqlite3.Error as e:
             print(f"Error loading kernel dispatch events: {e}")
-    
+
     def _load_memory_copy_events_from_view(self):
         """Load memory copy events from the memory_copies view with full information."""
         try:
             cursor = self._conn.cursor()
-            
+
             query = """
-            SELECT 
+            SELECT
                 id, guid, category, nid, pid, tid, start, end, duration,
                 name, region_name, stream_id, queue_id, stream_name, queue_name,
                 size, dst_device, dst_agent_abs_index, dst_agent_log_index,
@@ -534,10 +534,10 @@ class RocmSourceIterator(bt2._UserMessageIterator):
             ORDER BY start
             """
             cursor.execute(query)
-            
+
             for row in cursor.fetchall():
                 copy_name = row[9] or 'unknown_copy'
-                
+
                 # Create comprehensive memory copy args
                 memory_args = {
                     'copy_id': row[0] or 0,
@@ -570,14 +570,14 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                     'correlation_id': row[30] or 0,
                     'duration': row[8] if row[8] is not None else (row[7] - row[6] if row[7] and row[6] else 0)
                 }
-                
+
                 # Memory copy start event
                 start_args = memory_args.copy()
                 start_args.update({
                     'event_type': 'memory_copy_start',
                     'duration': 0
                 })
-                
+
                 self._current_events.append(RocmEventData(
                     name=f"memory_copy_start",
                     timestamp=row[6],
@@ -588,13 +588,13 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                     stream_id=row[11],
                     event_args=start_args
                 ))
-                
+
                 # Memory copy end event
                 end_args = memory_args.copy()
                 end_args.update({
                     'event_type': 'memory_copy_end'
                 })
-                
+
                 self._current_events.append(RocmEventData(
                     name=f"memory_copy_end",
                     timestamp=row[7],
@@ -605,10 +605,10 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                     stream_id=row[11],
                     event_args=end_args
                 ))
-                
+
         except sqlite3.Error as e:
             print(f"Error loading memory copy events from view: {e}")
-    
+
     def _load_memory_copy_events(self):
         """Load memory copy events from the database."""
         try:
@@ -616,16 +616,16 @@ class RocmSourceIterator(bt2._UserMessageIterator):
             # Handle different table naming patterns
             mc_table = f'rocpd_memory_copy{self._uuid}' if self._uuid else 'rocpd_memory_copy'
             string_table = f'rocpd_string{self._uuid}' if self._uuid else 'rocpd_string'
-            
+
             # First check what columns are available in the memory copy table
             cursor.execute(f"PRAGMA table_info({mc_table})")
             columns = [row[1] for row in cursor.fetchall()]
-            
+
             # Build query based on available columns
             if 'name_id' in columns:
                 # If name_id exists, join with string table
                 query = f"""
-                SELECT 
+                SELECT
                     m.start, m.end, m.nid, m.pid, m.tid,
                     m.size, m.dst_agent_id, m.src_agent_id,
                     m.queue_id, m.stream_id,
@@ -638,7 +638,7 @@ class RocmSourceIterator(bt2._UserMessageIterator):
             else:
                 # If name_id doesn't exist, use a default name
                 query = f"""
-                SELECT 
+                SELECT
                     m.start, m.end, m.nid, m.pid, m.tid,
                     m.size, m.dst_agent_id, m.src_agent_id,
                     m.queue_id, m.stream_id,
@@ -647,9 +647,9 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                 FROM {mc_table} m
                 ORDER BY m.start
                 """
-            
+
             cursor.execute(query)
-            
+
             for row in cursor.fetchall():
                 # Memory copy start event
                 self._current_events.append(RocmEventData(
@@ -668,7 +668,7 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                         'event_type': 'memory_copy_start'
                     }
                 ))
-                
+
                 # Memory copy end event
                 self._current_events.append(RocmEventData(
                     name=f"memory_copy_end",
@@ -683,17 +683,17 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                         'duration': row['end'] - row['start']
                     }
                 ))
-                
+
         except sqlite3.Error as e:
             print(f"Error loading memory copy events: {e}")
-    
+
     def _load_sample_events_from_view(self):
         """Load sample events from the samples view with full information."""
         try:
             cursor = self._conn.cursor()
-            
+
             query = """
-            SELECT 
+            SELECT
                 id, guid, category, name, nid, pid, tid, timestamp,
                 event_id, stack_id, parent_stack_id, corr_id,
                 extdata, call_stack, line_info
@@ -701,10 +701,10 @@ class RocmSourceIterator(bt2._UserMessageIterator):
             ORDER BY timestamp
             """
             cursor.execute(query)
-            
+
             for row in cursor.fetchall():
                 sample_name = row[3] or f"sample_{row[0]}"
-                
+
                 # Create comprehensive sample args
                 sample_args = {
                     'sample_id': row[0] or 0,
@@ -723,7 +723,7 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                     'line_info': str(row[14]) if row[14] else '{}',
                     'event_type': 'sample'
                 }
-                
+
                 self._current_events.append(RocmEventData(
                     name=f"sample",
                     timestamp=row[7],
@@ -732,10 +732,10 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                     tid=row[6],
                     event_args=sample_args
                 ))
-                
+
         except sqlite3.Error as e:
             print(f"Error loading sample events from view: {e}")
-    
+
     def _load_sample_events(self):
         """Load sample events from the database."""
         try:
@@ -744,9 +744,9 @@ class RocmSourceIterator(bt2._UserMessageIterator):
             sample_table = f'rocpd_sample{self._uuid}' if self._uuid else 'rocpd_sample'
             track_table = f'rocpd_track{self._uuid}' if self._uuid else 'rocpd_track'
             string_table = f'rocpd_string{self._uuid}' if self._uuid else 'rocpd_string'
-            
+
             query = f"""
-            SELECT 
+            SELECT
                 s.timestamp, s.track_id,
                 t.nid, t.pid, t.tid,
                 str.string as track_name,
@@ -757,10 +757,10 @@ class RocmSourceIterator(bt2._UserMessageIterator):
             ORDER BY s.timestamp
             """
             cursor.execute(query)
-            
+
             for row in cursor.fetchall():
                 track_name = row['track_name'] or f"track_{row['track_id']}"
-                
+
                 self._current_events.append(RocmEventData(
                     name=f"sample",
                     timestamp=row['timestamp'],
@@ -773,17 +773,17 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                         'event_type': 'sample'
                     }
                 ))
-                
+
         except sqlite3.Error as e:
             print(f"Error loading sample events: {e}")
-    
+
     def _load_counter_collection_events(self):
         """Load counter collection events from the database."""
         try:
             cursor = self._conn.cursor()
-            
+
             query = """
-            SELECT 
+            SELECT
                 id, guid, dispatch_id, kernel_id, event_id, correlation_id,
                 stack_id, parent_stack_id, pid, tid, agent_id, agent_abs_index,
                 agent_log_index, agent_type_index, agent_type, queue_id,
@@ -797,7 +797,7 @@ class RocmSourceIterator(bt2._UserMessageIterator):
             ORDER BY start
             """
             cursor.execute(query)
-            
+
             for row in cursor.fetchall():
                 # Create counter collection event
                 counter_args = {
@@ -850,7 +850,7 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                     'code_object_id': row[46] or 0,
                     'event_type': 'counter_collection'
                 }
-                
+
                 self._current_events.append(RocmEventData(
                     name="counter_collection",
                     timestamp=row[38] or 0,  # start timestamp
@@ -861,27 +861,27 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                     queue_id=row[15] or 0,
                     event_args=counter_args
                 ))
-                
+
         except sqlite3.Error as e:
             print(f"Error loading counter collection events: {e}")
-    
+
     def _load_pmc_events_from_view(self):
         """Load PMC events from the pmc_events view with full information."""
         try:
             cursor = self._conn.cursor()
-            
+
             query = """
-            SELECT 
+            SELECT
                 id, guid, pmc_id, event_id, category, name, nid, pid,
                 dispatch_id, start, end, duration, counter_name, counter_value
             FROM pmc_events
             ORDER BY start
             """
             cursor.execute(query)
-            
+
             for row in cursor.fetchall():
                 pmc_name = row[5] or 'unknown_pmc'
-                
+
                 # Create comprehensive PMC event args
                 pmc_args = {
                     'pmc_event_id': row[0] or 0,
@@ -900,7 +900,7 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                     'counter_value': float(row[13]) if row[13] is not None else 0.0,
                     'event_type': 'pmc_event'
                 }
-                
+
                 self._current_events.append(RocmEventData(
                     name="pmc_event",
                     timestamp=row[9] or 0,  # start timestamp
@@ -908,17 +908,17 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                     pid=row[7] or 0,
                     event_args=pmc_args
                 ))
-                
+
         except sqlite3.Error as e:
             print(f"Error loading PMC events from view: {e}")
-    
+
     def _load_memory_allocation_events_from_view(self):
         """Load memory allocation events from the memory_allocations view."""
         try:
             cursor = self._conn.cursor()
-            
+
             query = """
-            SELECT 
+            SELECT
                 id, guid, category, nid, pid, tid, start, end, duration,
                 type, level, agent_name, agent_abs_index, agent_log_index,
                 agent_type_index, agent_type, address, size, queue_id, queue_name,
@@ -927,7 +927,7 @@ class RocmSourceIterator(bt2._UserMessageIterator):
             ORDER BY start
             """
             cursor.execute(query)
-            
+
             for row in cursor.fetchall():
                 # Create comprehensive memory allocation args
                 alloc_args = {
@@ -955,14 +955,14 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                     'correlation_id': row[24] or 0,
                     'duration': row[8] if row[8] is not None else (row[7] - row[6] if row[7] and row[6] else 0)
                 }
-                
+
                 # Memory allocation start event
                 start_args = alloc_args.copy()
                 start_args.update({
                     'event_type': 'memory_allocation_start',
                     'duration': 0
                 })
-                
+
                 self._current_events.append(RocmEventData(
                     name="memory_allocation_start",
                     timestamp=row[6],
@@ -973,13 +973,13 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                     stream_id=row[20],
                     event_args=start_args
                 ))
-                
+
                 # Memory allocation end event
                 end_args = alloc_args.copy()
                 end_args.update({
                     'event_type': 'memory_allocation_end'
                 })
-                
+
                 self._current_events.append(RocmEventData(
                     name="memory_allocation_end",
                     timestamp=row[7],
@@ -990,10 +990,10 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                     stream_id=row[20],
                     event_args=end_args
                 ))
-                
+
         except sqlite3.Error as e:
             print(f"Error loading memory allocation events from view: {e}")
-    
+
     def _define_pmc_event_class(self):
         """Define the PMC event class with performance counter fields."""
         pmc_payload_fc = self._trace_class.create_structure_field_class()
@@ -1012,19 +1012,19 @@ class RocmSourceIterator(bt2._UserMessageIterator):
         pmc_payload_fc.append_member("counter_name", self._trace_class.create_string_field_class())
         pmc_payload_fc.append_member("counter_value", self._trace_class.create_double_precision_real_field_class())
         pmc_payload_fc.append_member("event_type", self._trace_class.create_string_field_class())
-        
+
         pmc_event_class = self._stream_class.create_event_class(
             name="pmc_event",
             payload_field_class=pmc_payload_fc
         )
         self._event_classes["pmc_event"] = pmc_event_class
-    
+
     def __next__(self):
         """Return the next message."""
         if self._state == "stream_beginning":
             self._state = "packet_beginning"
             return self._create_stream_beginning_message(self._stream)
-        
+
         elif self._state == "packet_beginning":
             # Create a packet for this stream
             if not hasattr(self, '_packet'):
@@ -1035,33 +1035,33 @@ class RocmSourceIterator(bt2._UserMessageIterator):
             if self._current_events:
                 first_timestamp = self._current_events[0].timestamp
             return self._create_packet_beginning_message(self._packet, default_clock_snapshot=first_timestamp)
-        
+
         elif self._state == "events":
             if self._event_index < len(self._current_events):
                 event_data = self._current_events[self._event_index]
                 self._event_index += 1
-                
+
                 # Determine event class based on event category and name
                 event_class_name = self._get_event_class_name_by_category(event_data)
                 event_class = self._event_classes.get(event_class_name)
-                
+
                 if event_class is None:
                     # Fall back to generic event if specific class not found
                     event_class_name = "generic_event"
                     event_class = self._event_classes.get(event_class_name)
-                
+
                 # Create an event message
                 msg = self._create_event_message(
                     event_class,
                     self._packet,
                     default_clock_snapshot=event_data.timestamp
                 )
-                
+
                 # Set event fields based on event data
                 self._set_event_fields(msg, event_data, event_class_name)
-                
+
                 return msg
-            
+
             else:
                 # No more events, end the packet
                 self._state = "packet_end"
@@ -1070,19 +1070,19 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                 if self._current_events:
                     last_timestamp = self._current_events[-1].timestamp
                 return self._create_packet_end_message(self._packet, default_clock_snapshot=last_timestamp)
-        
+
         elif self._state == "packet_end":
             # End the stream if in packet end state
             self._state = "stream_end"
             return self._create_stream_end_message(self._stream)
-        
+
         raise StopIteration
-    
+
     def _get_event_class_name_by_category(self, event_data: RocmEventData) -> str:
         """Get the event class name based on event category and name."""
         if hasattr(event_data, 'category') and event_data.category:
             category = event_data.category.lower()
-            
+
             # Map categories to specific event types
             if category == 'hip_runtime_api_ext':
                 return 'hip_runtime_region_event'
@@ -1102,11 +1102,25 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                 return 'memory_allocation_event'
             elif category == 'counter_collection':
                 return 'counter_collection_event'
+            elif category == 'rocdecode_api_ext':
+                return 'rocdecode_region_event'
+            elif category == 'rocjpeg_api':
+                return 'rocjpeg_region_event'
+            elif category == 'scratch_memory':
+                return 'scratch_memory_region_event'
+            elif category == 'rccl_api':
+                return 'rccl_api_region_event'
+            elif category == 'ompt':
+                return 'ompt_region_event'
+            elif category == 'kfd_page_migrate':
+                return 'kfd_page_migrate_region_event'
+            elif category == 'kfd_page_fault':
+                return 'kfd_page_fault_region_event'
             elif category == 'pmc':
                 return 'pmc_event'
             elif "region" in event_data.name:
                 return 'region_event'
-        
+
         # Fall back to original logic
         return self._get_event_class_name(event_data.name)
 
@@ -1136,7 +1150,7 @@ class RocmSourceIterator(bt2._UserMessageIterator):
     def _set_event_fields(self, msg, event_data, event_class_name):
         """Set event fields based on event data and event class type."""
         payload = msg.event.payload_field
-        
+
         # Set common fields that all events have
         if hasattr(event_data, 'name') and event_data.name is not None:
             if 'name' in payload:
@@ -1149,33 +1163,33 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                 payload['pmc_name'] = event_data.name
             elif 'counter_name' in payload:
                 payload['counter_name'] = event_data.name
-        
+
         if hasattr(event_data, 'category') and event_data.category is not None and 'category' in payload:
             payload['category'] = event_data.category
-        
+
         if hasattr(event_data, 'event_type') and event_data.event_type is not None and 'event_type' in payload:
             payload['event_type'] = event_data.event_type
-            
+
         if hasattr(event_data, 'duration') and event_data.duration is not None and 'duration' in payload:
             payload['duration'] = event_data.duration
-        
+
         # Set event-specific fields based on event class name
         if event_class_name == "region_event":
             # Region events have region_name, event_type, duration
             pass  # Common fields already set above
-            
+
         elif event_class_name == "kernel_dispatch_event":
             # Kernel dispatch events have all the kernel fields - handled via event_args below
             pass
-            
+
         elif event_class_name == "memory_copy_event":
             # Memory copy events have memory-specific fields - handled via event_args below
             pass
-            
+
         elif event_class_name == "memory_allocation_event":
             # Memory allocation events have allocation-specific fields - handled via event_args below
             pass
-            
+
         elif event_class_name == "counter_collection_event":
             # Counter collection events have counter-specific fields
             if hasattr(event_data, 'counter_id') and event_data.counter_id is not None and 'counter_id' in payload:
@@ -1186,11 +1200,11 @@ class RocmSourceIterator(bt2._UserMessageIterator):
                 payload['counter_symbol'] = event_data.counter_symbol
             if hasattr(event_data, 'description') and event_data.description is not None and 'description' in payload:
                 payload['description'] = event_data.description
-                
+
         elif event_class_name == "pmc_event":
             # PMC events have PMC-specific fields - handled via event_args below
             pass
-                
+
         # For all event types, try to set any matching fields from event_args
         if hasattr(event_data, 'event_args') and event_data.event_args:
             for key, value in event_data.event_args.items():
@@ -1206,28 +1220,28 @@ def __del__(self):
 @bt2.plugin_component_class
 class RocmSource(bt2._UserSourceComponent, message_iterator_class=RocmSourceIterator):
     """Source component for reading ROCm profiler SQLite3 databases."""
-    
+
     def __init__(self, config, params, obj):
         """Initialize the source component."""
         # Get database path from parameters
         self._db_path = str(params.get('db-path', '24228_results.db'))
-        
+
         if not self._db_path:
             raise ValueError("Database path parameter 'db-path' is required")
-        
+
         if not os.path.exists(self._db_path):
             raise FileNotFoundError(f"Database file not found: {self._db_path}")
-        
+
         # Create trace class
         self._trace_class = super()._create_trace_class()
-        
+
         # Create clock class
         self._clock_class = self._create_clock_class(
             name="rocm_clock",
             description="ROCm profiler clock",
             frequency=1_000_000_000  # Nanoseconds
         )
-        
+
         # Create stream class with packet support
         self._stream_class = self._trace_class.create_stream_class(
             name="rocm_stream",
@@ -1236,10 +1250,10 @@ class RocmSource(bt2._UserSourceComponent, message_iterator_class=RocmSourceIter
             packets_have_beginning_default_clock_snapshot=True,
             packets_have_end_default_clock_snapshot=True
         )
-        
+
         # Create event classes
         self._event_classes = self._create_event_classes()
-        
+
         # Create output port
         self._add_output_port("out", {
             'db_path': self._db_path,
@@ -1248,7 +1262,7 @@ class RocmSource(bt2._UserSourceComponent, message_iterator_class=RocmSourceIter
             'event_classes': self._event_classes,
             'clock_class': self._clock_class
         })
-    
+
     def _create_clock_class(self, name: str, description: str, frequency: int):
         """Create a clock class for ROCm events."""
         clock_class = super()._create_clock_class(
@@ -1261,7 +1275,7 @@ class RocmSource(bt2._UserSourceComponent, message_iterator_class=RocmSourceIter
     def _create_event_classes(self) -> Dict[str, Any]:
         """Create event classes for different ROCm event types."""
         event_classes = {}
-        
+
         # Region event class
         region_payload_fc = self._trace_class.create_structure_field_class()
         region_payload_fc.append_member(
@@ -1278,7 +1292,7 @@ class RocmSource(bt2._UserSourceComponent, message_iterator_class=RocmSourceIter
             payload_field_class=region_payload_fc
         )
         event_classes["region_event"] = region_event_class
-        
+
         # Kernel dispatch event class (comprehensive)
         kernel_payload_fc = self._trace_class.create_structure_field_class()
         kernel_payload_fc.append_member("kernel_id", self._trace_class.create_signed_integer_field_class(64))
@@ -1495,6 +1509,55 @@ class RocmSource(bt2._UserSourceComponent, message_iterator_class=RocmSourceIter
         )
         event_classes["memory_copy_region_event"] = memory_copy_region_event_class
 
+        # ROCDecode API region events
+        rocdecode_region_event_class = self._stream_class.create_event_class(
+            name="rocdecode_region_event",
+            payload_field_class=create_region_field_class()
+        )
+        event_classes["rocdecode_region_event"] = rocdecode_region_event_class
+
+        # ROCJPEG API region events
+        rocjpeg_region_event_class = self._stream_class.create_event_class(
+            name="rocjpeg_region_event",
+            payload_field_class=create_region_field_class()
+        )
+        event_classes["rocjpeg_region_event"] = rocjpeg_region_event_class
+
+        # RCCL API region events
+        rccl_region_event_class = self._stream_class.create_event_class(
+            name="rccl_region_event",
+            payload_field_class=create_region_field_class()
+        )
+        event_classes["rccl_region_event"] = rccl_region_event_class
+
+        # Scratch Memory region events
+        scratch_memory_region_event_class = self._stream_class.create_event_class(
+            name="scratch_memory_region_event",
+            payload_field_class=create_region_field_class()
+        )
+        event_classes["scratch_memory_region_event"] = scratch_memory_region_event_class
+
+        # OMPT region events
+        ompt_region_event_class = self._stream_class.create_event_class(
+            name="ompt_region_event",
+            payload_field_class=create_region_field_class()
+        )
+        event_classes["ompt_region_event"] = ompt_region_event_class
+
+        # KFD Page Migration region events
+        kfd_page_migration_region_event_class = self._stream_class.create_event_class(
+            name="kfd_page_migration_region_event",
+            payload_field_class=create_region_field_class()
+        )
+        event_classes["kfd_page_migration_region_event"] = kfd_page_migration_region_event_class
+
+        # KFD Page Fault region events
+        kfd_page_fault_region_event_class = self._stream_class.create_event_class(
+            name="kfd_page_fault_region_event",
+            payload_field_class=create_region_field_class()
+        )
+        event_classes["kfd_page_fault_region_event"] = kfd_page_fault_region_event_class
+
         # Counter Collection event class
         counter_collection_payload_fc = self._trace_class.create_structure_field_class()
         counter_collection_payload_fc.append_member("id", self._trace_class.create_signed_integer_field_class(64))
@@ -1618,7 +1681,7 @@ class RocmSource(bt2._UserSourceComponent, message_iterator_class=RocmSourceIter
             # Declare MIP version support
             return 0  # Support MIP version 0
 
-       
+
 
         return None
 
