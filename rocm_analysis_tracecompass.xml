@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<tmfxml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:noNamespaceSchemaLocation="xmlDefinition.xsd">
+
+  <!-- ROCm State Provider Analysis - For Preprocessed Traces -->
+  <stateProvider version="1" id="rocm.analysis.state.provider">
+    <head>
+      <label value="ROCm Profiler Analysis" />
+    </head>
+
+    <!-- Define states for different ROCm operations -->
+    <definedValue name="RUNNING" value="100" />
+
+    <!-- HIP Runtime region start events -->
+    <eventHandler eventName="*_region_event">
+      <stateChange>
+      	<stateAttribute type="constant" value="API-Trace" />
+      	<stateAttribute type="eventField" value="pid" />
+      	<stateAttribute type="eventField" value="tid" />
+        <stateValue type="eventField" value="event_type" />
+      </stateChange>
+    </eventHandler>
+
+    <eventHandler eventName="memory_allocation_event">
+      <stateChange>
+      	<stateAttribute type="constant" value="Memory-Allocation" />
+      	<stateAttribute type="eventField" value="pid" />
+      	<stateAttribute type="eventField" value="tid" />
+      	<stateAttribute type="eventField" value="queue_id" />
+      	<stateAttribute type="eventField" value="agent_type" />
+      	<stateAttribute type="eventField" value="agent_type_index" />
+        <stateValue type="eventField" value="event_type" />
+      </stateChange>
+    </eventHandler>
+
+    <eventHandler eventName="kernel_dispatch_event">
+      <stateChange>
+      	<stateAttribute type="constant" value="Kernel-Dispatches" />
+        <stateAttribute type="eventField" value="pid" />
+        <stateAttribute type="eventField" value="stream_id" />
+      	<stateAttribute type="eventField" value="queue_id" />
+      	<stateAttribute type="eventField" value="agent_type" />
+      	<stateAttribute type="eventField" value="agent_type_index" />
+      	<stateValue type="eventField" value="event_type" />
+      </stateChange>
+    </eventHandler>
+
+    <eventHandler eventName="memory_copy_event">
+      <stateChange>
+      	<stateAttribute type="constant" value="Memory-Copy" />
+      	<stateAttribute type="eventField" value="pid" />
+      	<stateAttribute type="eventField" value="tid" />
+      	<stateAttribute type="eventField" value="stream_id" />
+      	<stateAttribute type="eventField" value="queue_id" />
+      	<stateAttribute type="eventField" value="src_agent_type" />
+      	<stateAttribute type="eventField" value="src_agent_type_index" />
+      	<stateAttribute type="eventField" value="dst_agent_type" />
+      	<stateAttribute type="eventField" value="dst_agent_type_index" />
+        <stateValue type="eventField" value="event_type" />
+      </stateChange>
+    </eventHandler>
+
+  </stateProvider>
+
+  <timeGraphView id="rocm.time.graph.view">
+    <head>
+      <analysis id="rocm.analysis.state.provider" />
+      <label value="ROCm XML View" />
+    </head>
+
+    <definedValue name="VALID" value="*_start" color="#FF0000" />
+    <definedValue name="NONE" value="*_end" color="#EEEEEE" />
+
+    <entry path="API-Trace">
+      <display type="self"/>
+      <entry path="*">
+      	<display type="self"/>
+      	<entry path="*">
+      		<display type="self"/>
+      	</entry>
+      </entry>
+    </entry>
+
+    <entry path="Kernel-Dispatches">
+      <display type="self"/>
+      <entry path="*">
+      	<display type="self"/>
+      	<entry path="*">
+      		<display type="self"/>
+      		<entry path="*">
+      			<display type="self"/>
+      			<entry path="*/*">
+      				<display type="self"/>
+      			</entry>
+      		</entry>
+      	</entry>
+      </entry>
+    </entry>
+
+    <entry path="Memory-Copy">
+      <display type="self"/>
+      <entry path="*">
+      	<display type="self"/>
+      	<entry path="*">
+      		<display type="self"/>
+      		<entry path="*">
+      			<display type="self"/>
+      			<entry path="*">
+      				<display type="self"/>
+      				<entry path="*/*">
+      					<display type="self"/>
+      					<entry path="*/*">
+      						<display type="self"/>
+      					</entry>
+      				</entry>
+      			</entry>
+      		</entry>
+      	</entry>
+      </entry>
+    </entry>
+
+    <entry path="Memory-Allocation">
+      <display type="self"/>
+      <entry path="*">
+      	<display type="self"/>
+      	<entry path="*">
+      		<display type="self"/>
+      		<entry path="*">
+      			<display type="self"/>
+      			<entry path="*/*">
+      				<display type="self"/>
+      			</entry>
+      		</entry>
+      	</entry>
+      </entry>
+    </entry>
+  </timeGraphView>
+
+</tmfxml>
