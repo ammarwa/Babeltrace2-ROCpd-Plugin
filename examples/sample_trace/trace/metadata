@@ -5,7 +5,7 @@
 trace {
 	major = 1;
 	minor = 8;
-	uuid = "79e1a250-19d2-4568-b0d8-a1e4ce8ba93c";
+	uuid = "50fa60bc-7409-4511-a6d7-1c8eb1ac4aeb";
 	byte_order = le;
 	packet.header := struct {
 		integer { size = 32; align = 8; base = x; } magic;
@@ -42,14 +42,13 @@ stream {
 };
 
 event {
-	name = "hip_compiler_region_event";
+	name = "hip_compiler_region_event_start";
 	stream_id = 0;
-	id = 7;
+	id = 15;
 	fields := struct {
 		integer { size = 64; align = 8; signed = true; } _region_id;
 		string { encoding = UTF8; } _guid;
-		string { encoding = UTF8; } _region_name;
-		string { encoding = UTF8; } _event_type;
+		string { encoding = UTF8; } _name;
 		string { encoding = UTF8; } _category;
 		integer { size = 64; align = 8; signed = true; } _nid;
 		integer { size = 64; align = 8; signed = true; } _pid;
@@ -66,14 +65,13 @@ event {
 };
 
 event {
-	name = "hip_runtime_region_event";
+	name = "hip_compiler_region_event_end";
 	stream_id = 0;
-	id = 6;
+	id = 16;
 	fields := struct {
 		integer { size = 64; align = 8; signed = true; } _region_id;
 		string { encoding = UTF8; } _guid;
-		string { encoding = UTF8; } _region_name;
-		string { encoding = UTF8; } _event_type;
+		string { encoding = UTF8; } _name;
 		string { encoding = UTF8; } _category;
 		integer { size = 64; align = 8; signed = true; } _nid;
 		integer { size = 64; align = 8; signed = true; } _pid;
@@ -90,14 +88,13 @@ event {
 };
 
 event {
-	name = "hsa_core_region_event";
+	name = "hip_runtime_region_event_start";
 	stream_id = 0;
-	id = 8;
+	id = 12;
 	fields := struct {
 		integer { size = 64; align = 8; signed = true; } _region_id;
 		string { encoding = UTF8; } _guid;
-		string { encoding = UTF8; } _region_name;
-		string { encoding = UTF8; } _event_type;
+		string { encoding = UTF8; } _name;
 		string { encoding = UTF8; } _category;
 		integer { size = 64; align = 8; signed = true; } _nid;
 		integer { size = 64; align = 8; signed = true; } _pid;
@@ -114,33 +111,101 @@ event {
 };
 
 event {
-	name = "hsa_amd_ext_region_event";
+	name = "hsa_core_region_event_start";
+	stream_id = 0;
+	id = 18;
+	fields := struct {
+		integer { size = 64; align = 8; signed = true; } _region_id;
+		string { encoding = UTF8; } _guid;
+		string { encoding = UTF8; } _name;
+		string { encoding = UTF8; } _category;
+		integer { size = 64; align = 8; signed = true; } _nid;
+		integer { size = 64; align = 8; signed = true; } _pid;
+		integer { size = 64; align = 8; signed = true; } _tid;
+		integer { size = 64; align = 8; signed = true; } _event_id;
+		integer { size = 64; align = 8; signed = true; } _stack_id;
+		integer { size = 64; align = 8; signed = true; } _parent_stack_id;
+		integer { size = 64; align = 8; signed = true; } _correlation_id;
+		integer { size = 64; align = 8; signed = true; } _duration;
+		string { encoding = UTF8; } _extdata;
+		string { encoding = UTF8; } _call_stack;
+		string { encoding = UTF8; } _line_info;
+	} align(8);
+};
+
+event {
+	name = "hsa_core_region_event_end";
+	stream_id = 0;
+	id = 19;
+	fields := struct {
+		integer { size = 64; align = 8; signed = true; } _region_id;
+		string { encoding = UTF8; } _guid;
+		string { encoding = UTF8; } _name;
+		string { encoding = UTF8; } _category;
+		integer { size = 64; align = 8; signed = true; } _nid;
+		integer { size = 64; align = 8; signed = true; } _pid;
+		integer { size = 64; align = 8; signed = true; } _tid;
+		integer { size = 64; align = 8; signed = true; } _event_id;
+		integer { size = 64; align = 8; signed = true; } _stack_id;
+		integer { size = 64; align = 8; signed = true; } _parent_stack_id;
+		integer { size = 64; align = 8; signed = true; } _correlation_id;
+		integer { size = 64; align = 8; signed = true; } _duration;
+		string { encoding = UTF8; } _extdata;
+		string { encoding = UTF8; } _call_stack;
+		string { encoding = UTF8; } _line_info;
+	} align(8);
+};
+
+event {
+	name = "hsa_amd_ext_region_event_start";
+	stream_id = 0;
+	id = 21;
+	fields := struct {
+		integer { size = 64; align = 8; signed = true; } _region_id;
+		string { encoding = UTF8; } _guid;
+		string { encoding = UTF8; } _name;
+		string { encoding = UTF8; } _category;
+		integer { size = 64; align = 8; signed = true; } _nid;
+		integer { size = 64; align = 8; signed = true; } _pid;
+		integer { size = 64; align = 8; signed = true; } _tid;
+		integer { size = 64; align = 8; signed = true; } _event_id;
+		integer { size = 64; align = 8; signed = true; } _stack_id;
+		integer { size = 64; align = 8; signed = true; } _parent_stack_id;
+		integer { size = 64; align = 8; signed = true; } _correlation_id;
+		integer { size = 64; align = 8; signed = true; } _duration;
+		string { encoding = UTF8; } _extdata;
+		string { encoding = UTF8; } _call_stack;
+		string { encoding = UTF8; } _line_info;
+	} align(8);
+};
+
+event {
+	name = "hsa_amd_ext_region_event_end";
+	stream_id = 0;
+	id = 22;
+	fields := struct {
+		integer { size = 64; align = 8; signed = true; } _region_id;
+		string { encoding = UTF8; } _guid;
+		string { encoding = UTF8; } _name;
+		string { encoding = UTF8; } _category;
+		integer { size = 64; align = 8; signed = true; } _nid;
+		integer { size = 64; align = 8; signed = true; } _pid;
+		integer { size = 64; align = 8; signed = true; } _tid;
+		integer { size = 64; align = 8; signed = true; } _event_id;
+		integer { size = 64; align = 8; signed = true; } _stack_id;
+		integer { size = 64; align = 8; signed = true; } _parent_stack_id;
+		integer { size = 64; align = 8; signed = true; } _correlation_id;
+		integer { size = 64; align = 8; signed = true; } _duration;
+		string { encoding = UTF8; } _extdata;
+		string { encoding = UTF8; } _call_stack;
+		string { encoding = UTF8; } _line_info;
+	} align(8);
+};
+
+event {
+	name = "memory_allocation_event_start";
 	stream_id = 0;
 	id = 9;
-	fields := struct {
-		integer { size = 64; align = 8; signed = true; } _region_id;
-		string { encoding = UTF8; } _guid;
-		string { encoding = UTF8; } _region_name;
-		string { encoding = UTF8; } _event_type;
-		string { encoding = UTF8; } _category;
-		integer { size = 64; align = 8; signed = true; } _nid;
-		integer { size = 64; align = 8; signed = true; } _pid;
-		integer { size = 64; align = 8; signed = true; } _tid;
-		integer { size = 64; align = 8; signed = true; } _event_id;
-		integer { size = 64; align = 8; signed = true; } _stack_id;
-		integer { size = 64; align = 8; signed = true; } _parent_stack_id;
-		integer { size = 64; align = 8; signed = true; } _correlation_id;
-		integer { size = 64; align = 8; signed = true; } _duration;
-		string { encoding = UTF8; } _extdata;
-		string { encoding = UTF8; } _call_stack;
-		string { encoding = UTF8; } _line_info;
-	} align(8);
-};
-
-event {
-	name = "memory_allocation_event";
-	stream_id = 0;
-	id = 3;
 	fields := struct {
 		integer { size = 64; align = 8; signed = true; } _allocation_id;
 		string { encoding = UTF8; } _guid;
@@ -165,19 +230,48 @@ event {
 		integer { size = 64; align = 8; signed = true; } _parent_stack_id;
 		integer { size = 64; align = 8; signed = true; } _correlation_id;
 		integer { size = 64; align = 8; signed = true; } _duration;
-		string { encoding = UTF8; } _event_type;
 	} align(8);
 };
 
 event {
-	name = "marker_core_region_event";
+	name = "memory_allocation_event_end";
 	stream_id = 0;
 	id = 10;
 	fields := struct {
+		integer { size = 64; align = 8; signed = true; } _allocation_id;
+		string { encoding = UTF8; } _guid;
+		string { encoding = UTF8; } _category;
+		integer { size = 64; align = 8; signed = true; } _nid;
+		integer { size = 64; align = 8; signed = true; } _pid;
+		integer { size = 64; align = 8; signed = true; } _tid;
+		string { encoding = UTF8; } _allocation_type;
+		string { encoding = UTF8; } _level;
+		string { encoding = UTF8; } _agent_name;
+		integer { size = 64; align = 8; signed = true; } _agent_abs_index;
+		integer { size = 64; align = 8; signed = true; } _agent_log_index;
+		integer { size = 64; align = 8; signed = true; } _agent_type_index;
+		string { encoding = UTF8; } _agent_type;
+		integer { size = 64; align = 8; signed = true; } _address;
+		integer { size = 64; align = 8; signed = true; } _size;
+		integer { size = 64; align = 8; signed = true; } _queue_id;
+		string { encoding = UTF8; } _queue_name;
+		integer { size = 64; align = 8; signed = true; } _stream_id;
+		string { encoding = UTF8; } _stream_name;
+		integer { size = 64; align = 8; signed = true; } _stack_id;
+		integer { size = 64; align = 8; signed = true; } _parent_stack_id;
+		integer { size = 64; align = 8; signed = true; } _correlation_id;
+		integer { size = 64; align = 8; signed = true; } _duration;
+	} align(8);
+};
+
+event {
+	name = "hip_runtime_region_event_end";
+	stream_id = 0;
+	id = 13;
+	fields := struct {
 		integer { size = 64; align = 8; signed = true; } _region_id;
 		string { encoding = UTF8; } _guid;
-		string { encoding = UTF8; } _region_name;
-		string { encoding = UTF8; } _event_type;
+		string { encoding = UTF8; } _name;
 		string { encoding = UTF8; } _category;
 		integer { size = 64; align = 8; signed = true; } _nid;
 		integer { size = 64; align = 8; signed = true; } _pid;
@@ -194,9 +288,32 @@ event {
 };
 
 event {
-	name = "memory_copy_event";
+	name = "marker_core_region_event_start";
 	stream_id = 0;
-	id = 2;
+	id = 24;
+	fields := struct {
+		integer { size = 64; align = 8; signed = true; } _region_id;
+		string { encoding = UTF8; } _guid;
+		string { encoding = UTF8; } _name;
+		string { encoding = UTF8; } _category;
+		integer { size = 64; align = 8; signed = true; } _nid;
+		integer { size = 64; align = 8; signed = true; } _pid;
+		integer { size = 64; align = 8; signed = true; } _tid;
+		integer { size = 64; align = 8; signed = true; } _event_id;
+		integer { size = 64; align = 8; signed = true; } _stack_id;
+		integer { size = 64; align = 8; signed = true; } _parent_stack_id;
+		integer { size = 64; align = 8; signed = true; } _correlation_id;
+		integer { size = 64; align = 8; signed = true; } _duration;
+		string { encoding = UTF8; } _extdata;
+		string { encoding = UTF8; } _call_stack;
+		string { encoding = UTF8; } _line_info;
+	} align(8);
+};
+
+event {
+	name = "memory_copy_event_start";
+	stream_id = 0;
+	id = 6;
 	fields := struct {
 		integer { size = 64; align = 8; signed = true; } _copy_id;
 		string { encoding = UTF8; } _guid;
@@ -204,7 +321,7 @@ event {
 		integer { size = 64; align = 8; signed = true; } _nid;
 		integer { size = 64; align = 8; signed = true; } _pid;
 		integer { size = 64; align = 8; signed = true; } _tid;
-		string { encoding = UTF8; } _copy_name;
+		string { encoding = UTF8; } _name;
 		string { encoding = UTF8; } _region_name;
 		integer { size = 64; align = 8; signed = true; } _stream_id;
 		integer { size = 64; align = 8; signed = true; } _queue_id;
@@ -227,21 +344,57 @@ event {
 		integer { size = 64; align = 8; signed = true; } _parent_stack_id;
 		integer { size = 64; align = 8; signed = true; } _correlation_id;
 		integer { size = 64; align = 8; signed = true; } _duration;
-		string { encoding = UTF8; } _event_type;
 	} align(8);
 };
 
 event {
-	name = "kernel_dispatch_event";
+	name = "memory_copy_event_end";
 	stream_id = 0;
-	id = 1;
+	id = 7;
+	fields := struct {
+		integer { size = 64; align = 8; signed = true; } _copy_id;
+		string { encoding = UTF8; } _guid;
+		string { encoding = UTF8; } _category;
+		integer { size = 64; align = 8; signed = true; } _nid;
+		integer { size = 64; align = 8; signed = true; } _pid;
+		integer { size = 64; align = 8; signed = true; } _tid;
+		string { encoding = UTF8; } _name;
+		string { encoding = UTF8; } _region_name;
+		integer { size = 64; align = 8; signed = true; } _stream_id;
+		integer { size = 64; align = 8; signed = true; } _queue_id;
+		string { encoding = UTF8; } _stream_name;
+		string { encoding = UTF8; } _queue_name;
+		integer { size = 64; align = 8; signed = true; } _size;
+		string { encoding = UTF8; } _dst_device;
+		integer { size = 64; align = 8; signed = true; } _dst_agent_abs_index;
+		integer { size = 64; align = 8; signed = true; } _dst_agent_log_index;
+		integer { size = 64; align = 8; signed = true; } _dst_agent_type_index;
+		string { encoding = UTF8; } _dst_agent_type;
+		integer { size = 64; align = 8; signed = true; } _dst_address;
+		string { encoding = UTF8; } _src_device;
+		integer { size = 64; align = 8; signed = true; } _src_agent_abs_index;
+		integer { size = 64; align = 8; signed = true; } _src_agent_log_index;
+		integer { size = 64; align = 8; signed = true; } _src_agent_type_index;
+		string { encoding = UTF8; } _src_agent_type;
+		integer { size = 64; align = 8; signed = true; } _src_address;
+		integer { size = 64; align = 8; signed = true; } _stack_id;
+		integer { size = 64; align = 8; signed = true; } _parent_stack_id;
+		integer { size = 64; align = 8; signed = true; } _correlation_id;
+		integer { size = 64; align = 8; signed = true; } _duration;
+	} align(8);
+};
+
+event {
+	name = "kernel_dispatch_event_start";
+	stream_id = 0;
+	id = 3;
 	fields := struct {
 		integer { size = 64; align = 8; signed = true; } _kernel_id;
 		string { encoding = UTF8; } _guid;
 		integer { size = 64; align = 8; signed = true; } _tid;
 		string { encoding = UTF8; } _category;
 		string { encoding = UTF8; } _region;
-		string { encoding = UTF8; } _kernel_name;
+		string { encoding = UTF8; } _name;
 		integer { size = 64; align = 8; signed = true; } _nid;
 		integer { size = 64; align = 8; signed = true; } _pid;
 		integer { size = 64; align = 8; signed = true; } _agent_abs_index;
@@ -269,37 +422,13 @@ event {
 		integer { size = 64; align = 8; signed = true; } _parent_stack_id;
 		integer { size = 64; align = 8; signed = true; } _correlation_id;
 		integer { size = 64; align = 8; signed = true; } _duration;
-		string { encoding = UTF8; } _event_type;
-	} align(8);
-};
-
-event {
-	name = "pmc_event";
-	stream_id = 0;
-	id = 14;
-	fields := struct {
-		integer { size = 64; align = 8; signed = true; } _pmc_event_id;
-		string { encoding = UTF8; } _guid;
-		integer { size = 64; align = 8; signed = true; } _pmc_id;
-		integer { size = 64; align = 8; signed = true; } _event_id;
-		string { encoding = UTF8; } _category;
-		string { encoding = UTF8; } _pmc_name;
-		integer { size = 64; align = 8; signed = true; } _nid;
-		integer { size = 64; align = 8; signed = true; } _pid;
-		integer { size = 64; align = 8; signed = true; } _dispatch_id;
-		integer { size = 64; align = 8; signed = true; } _start;
-		integer { size = 64; align = 8; signed = true; } _end;
-		integer { size = 64; align = 8; signed = true; } _duration;
-		string { encoding = UTF8; } _counter_name;
-		floating_point { mant_dig = 53; exp_dig = 11; align = 8; } _counter_value;
-		string { encoding = UTF8; } _event_type;
 	} align(8);
 };
 
 event {
 	name = "counter_collection_event";
 	stream_id = 0;
-	id = 13;
+	id = 55;
 	fields := struct {
 		integer { size = 64; align = 8; signed = true; } _id;
 		string { encoding = UTF8; } _guid;
@@ -320,7 +449,7 @@ event {
 		integer { size = 64; align = 8; signed = true; } _grid_size_x;
 		integer { size = 64; align = 8; signed = true; } _grid_size_y;
 		integer { size = 64; align = 8; signed = true; } _grid_size_z;
-		string { encoding = UTF8; } _kernel_name;
+		string { encoding = UTF8; } _name;
 		string { encoding = UTF8; } _kernel_region;
 		integer { size = 64; align = 8; signed = true; } _workgroup_size_x;
 		integer { size = 64; align = 8; signed = true; } _workgroup_size_y;
@@ -348,7 +477,70 @@ event {
 		integer { size = 64; align = 8; signed = true; } _nid;
 		string { encoding = UTF8; } _extdata;
 		integer { size = 64; align = 8; signed = true; } _code_object_id;
-		string { encoding = UTF8; } _event_type;
+	} align(8);
+};
+
+event {
+	name = "kernel_dispatch_event_end";
+	stream_id = 0;
+	id = 4;
+	fields := struct {
+		integer { size = 64; align = 8; signed = true; } _kernel_id;
+		string { encoding = UTF8; } _guid;
+		integer { size = 64; align = 8; signed = true; } _tid;
+		string { encoding = UTF8; } _category;
+		string { encoding = UTF8; } _region;
+		string { encoding = UTF8; } _name;
+		integer { size = 64; align = 8; signed = true; } _nid;
+		integer { size = 64; align = 8; signed = true; } _pid;
+		integer { size = 64; align = 8; signed = true; } _agent_abs_index;
+		integer { size = 64; align = 8; signed = true; } _agent_log_index;
+		integer { size = 64; align = 8; signed = true; } _agent_type_index;
+		string { encoding = UTF8; } _agent_type;
+		integer { size = 64; align = 8; signed = true; } _code_object_id;
+		integer { size = 64; align = 8; signed = true; } _kernel_symbol_id;
+		integer { size = 64; align = 8; signed = true; } _dispatch_id;
+		integer { size = 64; align = 8; signed = true; } _stream_id;
+		integer { size = 64; align = 8; signed = true; } _queue_id;
+		string { encoding = UTF8; } _queue_name;
+		string { encoding = UTF8; } _stream_name;
+		integer { size = 64; align = 8; signed = true; } _grid_size_x;
+		integer { size = 64; align = 8; signed = true; } _grid_size_y;
+		integer { size = 64; align = 8; signed = true; } _grid_size_z;
+		integer { size = 64; align = 8; signed = true; } _workgroup_size_x;
+		integer { size = 64; align = 8; signed = true; } _workgroup_size_y;
+		integer { size = 64; align = 8; signed = true; } _workgroup_size_z;
+		integer { size = 64; align = 8; signed = true; } _lds_size;
+		integer { size = 64; align = 8; signed = true; } _scratch_size;
+		integer { size = 64; align = 8; signed = true; } _static_lds_size;
+		integer { size = 64; align = 8; signed = true; } _static_scratch_size;
+		integer { size = 64; align = 8; signed = true; } _stack_id;
+		integer { size = 64; align = 8; signed = true; } _parent_stack_id;
+		integer { size = 64; align = 8; signed = true; } _correlation_id;
+		integer { size = 64; align = 8; signed = true; } _duration;
+	} align(8);
+};
+
+event {
+	name = "marker_core_region_event_end";
+	stream_id = 0;
+	id = 25;
+	fields := struct {
+		integer { size = 64; align = 8; signed = true; } _region_id;
+		string { encoding = UTF8; } _guid;
+		string { encoding = UTF8; } _name;
+		string { encoding = UTF8; } _category;
+		integer { size = 64; align = 8; signed = true; } _nid;
+		integer { size = 64; align = 8; signed = true; } _pid;
+		integer { size = 64; align = 8; signed = true; } _tid;
+		integer { size = 64; align = 8; signed = true; } _event_id;
+		integer { size = 64; align = 8; signed = true; } _stack_id;
+		integer { size = 64; align = 8; signed = true; } _parent_stack_id;
+		integer { size = 64; align = 8; signed = true; } _correlation_id;
+		integer { size = 64; align = 8; signed = true; } _duration;
+		string { encoding = UTF8; } _extdata;
+		string { encoding = UTF8; } _call_stack;
+		string { encoding = UTF8; } _line_info;
 	} align(8);
 };
 

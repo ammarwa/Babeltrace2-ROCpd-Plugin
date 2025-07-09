@@ -1,139 +1,51 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <tmfxml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-  xsi:noNamespaceSchemaLocation="xmlDefinition.xsd">
+	xsi:noNamespaceSchemaLocation="xmlDefinition.xsd">
 
-  <!-- ROCm State Provider Analysis - For Preprocessed Traces -->
-  <stateProvider version="1" id="rocm.analysis.state.provider">
-    <head>
-      <label value="ROCm Profiler Analysis" />
-    </head>
+	<callstack id="callstack.analysis">
+		<callstackGroup>
+			<level path="process/*/threads/*" />
+		</callstackGroup>
 
-    <!-- Define states for different ROCm operations -->
-    <definedValue name="RUNNING" value="100" />
+		<pattern version="0" id="callstack.pattern">
+			<head>
+				<label value="Rock'em callstack" />
+			</head>
 
-    <!-- HIP Runtime region start events -->
-    <eventHandler eventName="*_region_event">
-      <stateChange>
-      	<stateAttribute type="constant" value="API-Trace" />
-      	<stateAttribute type="eventField" value="pid" />
-      	<stateAttribute type="eventField" value="tid" />
-        <stateValue type="eventField" value="event_type" />
-      </stateChange>
-    </eventHandler>
+			<patternHandler>
+				<action id="functionEntry">
+					<stateChange>
+						<stateAttribute type="constant" value="process" />
+						<stateAttribute type="eventField" value="pid" />
+						<stateAttribute type="constant" value="threads" />
+						<stateAttribute type="eventField" value="tid" />
+						<stateAttribute type="constant" value="CallStack" />
+						<stateValue type="eventField" value="name" stack="push" />
+					</stateChange>
+				</action>
+				<action id="functionExit">
+					<stateChange>
+						<stateAttribute type="constant" value="process" />
+						<stateAttribute type="eventField" value="pid" />
+						<stateAttribute type="constant" value="threads" />
+						<stateAttribute type="eventField" value="tid" />
+						<stateAttribute type="constant" value="CallStack" />
+						<stateValue type="eventField" value="name" stack="pop" />
+					</stateChange>
+				</action>
 
-    <eventHandler eventName="memory_allocation_event">
-      <stateChange>
-      	<stateAttribute type="constant" value="Memory-Allocation" />
-      	<stateAttribute type="eventField" value="pid" />
-      	<stateAttribute type="eventField" value="tid" />
-      	<stateAttribute type="eventField" value="queue_id" />
-      	<stateAttribute type="eventField" value="agent_type" />
-      	<stateAttribute type="eventField" value="agent_type_index" />
-        <stateValue type="eventField" value="event_type" />
-      </stateChange>
-    </eventHandler>
 
-    <eventHandler eventName="kernel_dispatch_event">
-      <stateChange>
-      	<stateAttribute type="constant" value="Kernel-Dispatches" />
-        <stateAttribute type="eventField" value="pid" />
-        <stateAttribute type="eventField" value="stream_id" />
-      	<stateAttribute type="eventField" value="queue_id" />
-      	<stateAttribute type="eventField" value="agent_type" />
-      	<stateAttribute type="eventField" value="agent_type_index" />
-      	<stateValue type="eventField" value="event_type" />
-      </stateChange>
-    </eventHandler>
+				<fsm id="callstack" multiple="false" initial="oneState">
+					<state id="oneState">
+						<transition event=".*event_start" target="oneState"
+							action="functionEntry" />
+						<transition event=".*event_end" target="oneState"
+							action="functionExit" />
+					</state>
+				</fsm>
 
-    <eventHandler eventName="memory_copy_event">
-      <stateChange>
-      	<stateAttribute type="constant" value="Memory-Copy" />
-      	<stateAttribute type="eventField" value="pid" />
-      	<stateAttribute type="eventField" value="tid" />
-      	<stateAttribute type="eventField" value="stream_id" />
-      	<stateAttribute type="eventField" value="queue_id" />
-      	<stateAttribute type="eventField" value="src_agent_type" />
-      	<stateAttribute type="eventField" value="src_agent_type_index" />
-      	<stateAttribute type="eventField" value="dst_agent_type" />
-      	<stateAttribute type="eventField" value="dst_agent_type_index" />
-        <stateValue type="eventField" value="event_type" />
-      </stateChange>
-    </eventHandler>
-
-  </stateProvider>
-
-  <timeGraphView id="rocm.time.graph.view">
-    <head>
-      <analysis id="rocm.analysis.state.provider" />
-      <label value="ROCm XML View" />
-    </head>
-
-    <definedValue name="VALID" value="*_start" color="#FF0000" />
-    <definedValue name="NONE" value="*_end" color="#EEEEEE" />
-
-    <entry path="API-Trace">
-      <display type="self"/>
-      <entry path="*">
-      	<display type="self"/>
-      	<entry path="*">
-      		<display type="self"/>
-      	</entry>
-      </entry>
-    </entry>
-
-    <entry path="Kernel-Dispatches">
-      <display type="self"/>
-      <entry path="*">
-      	<display type="self"/>
-      	<entry path="*">
-      		<display type="self"/>
-      		<entry path="*">
-      			<display type="self"/>
-      			<entry path="*/*">
-      				<display type="self"/>
-      			</entry>
-      		</entry>
-      	</entry>
-      </entry>
-    </entry>
-
-    <entry path="Memory-Copy">
-      <display type="self"/>
-      <entry path="*">
-      	<display type="self"/>
-      	<entry path="*">
-      		<display type="self"/>
-      		<entry path="*">
-      			<display type="self"/>
-      			<entry path="*">
-      				<display type="self"/>
-      				<entry path="*/*">
-      					<display type="self"/>
-      					<entry path="*/*">
-      						<display type="self"/>
-      					</entry>
-      				</entry>
-      			</entry>
-      		</entry>
-      	</entry>
-      </entry>
-    </entry>
-
-    <entry path="Memory-Allocation">
-      <display type="self"/>
-      <entry path="*">
-      	<display type="self"/>
-      	<entry path="*">
-      		<display type="self"/>
-      		<entry path="*">
-      			<display type="self"/>
-      			<entry path="*/*">
-      				<display type="self"/>
-      			</entry>
-      		</entry>
-      	</entry>
-      </entry>
-    </entry>
-  </timeGraphView>
-
+			</patternHandler>
+		</pattern>
+	</callstack>
 </tmfxml>
+
