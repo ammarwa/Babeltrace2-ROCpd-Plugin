@@ -90,3 +90,12 @@ The plugin handles various error conditions:
 - **Sorted output**: Events are sorted by timestamp for proper trace ordering
 - **Database optimization**: Uses indexes for efficient querying
 
+## Examples
+
+The `examples` folder contains a sample rocprofv3 - rocpd database output (`24228_results.db`) and the corresponding generated CTF trace (`sample_trace/`). This allows users to quickly try out the plugin and see the conversion process in action.
+
+Additionally, a screenshot is provided to illustrate how the converted trace appears in a trace viewer:
+
+![Example CTF Trace Screenshot](examples/tracecompass.png)
+
+You can use these files to experiment with the plugin and verify its output.
