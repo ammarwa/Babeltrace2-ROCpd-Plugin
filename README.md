@@ -47,6 +47,10 @@ babeltrace2 --plugin-path=. --component source.rocm.RocmSource --params='db-path
 babeltrace2 --plugin-path=. --component source.rocm.RocmSource --params='db-path="your_rocm_database.db"' --component sink.ctf.fs --params='path="output_ctf_trace"'
 ```
 
+> **Note:** You can specify multiple database files in two ways:
+> - Using a brace expansion pattern, e.g., `{0...3}.db`
+> - Providing an explicit list, e.g., `["0.db", "1.db", "2.db"]`
+
 ### Python API Usage
 
 ```python
