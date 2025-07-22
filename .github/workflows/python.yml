@@ -62,5 +62,5 @@ jobs:
             "status": "success",
             "workflow_run_id": "${{ github.run_id }}",
             "conclusion": "${{ job.status }}",
-            "output": "$(cat output.log)"
+            "output": $(cat output.log)
           }'
