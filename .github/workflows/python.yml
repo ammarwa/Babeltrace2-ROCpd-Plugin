@@ -166,14 +166,16 @@ jobs:
       if: ${{ github.event_name == 'workflow_dispatch' }}
       run: |
         echo "Processing resume from: ${{ github.event.inputs.resumeUrl }}"
+        cat > payload.json << 'EOF' \
+        { \
+          "workflow_run_id": "${{ github.run_id }}", \
+          "conclusion": "${{ job.status }}", \
+          "stdout": "${{ steps.test.outputs.stdout }}", \
+          "stderr": "${{ steps.test.outputs.stderr }}", \
+          "status": "${{ steps.test.outputs.status }}", \
+          "duration": "${{ steps.duration.outputs.duration }}" \
+        }
+        EOF
         curl -X POST ${{ github.event.inputs.resumeUrl }} \
           -H "Content-Type: application/json" \
-          -d '{
-            "status": "success",
-            "workflow_run_id": "${{ github.run_id }}",
-            "conclusion": "${{ job.status }}",
-            "stdout": "${{ steps.test.outputs.stdout }}",
-            "stderr": "${{ steps.test.outputs.stderr }}",
-            "status": "${{ steps.test.outputs.status }}",
-            "duration": "${{ steps.duration.outputs.duration }}"
-          }'
+          -d @payload.json
