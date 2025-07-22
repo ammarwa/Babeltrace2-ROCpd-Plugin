@@ -174,7 +174,7 @@ jobs:
           "stderr": "${{ steps.test.outputs.stderr }}", \
           "status": "${{ steps.test.outputs.status }}", \
           "duration": "${{ steps.duration.outputs.duration }}" \
-        }
+        } \
         EOF
         curl -X POST ${{ github.event.inputs.resumeUrl }} \
           -H "Content-Type: application/json" \
