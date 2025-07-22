@@ -90,7 +90,7 @@ jobs:
         content=$(tail -n 10 output.log 2>/dev/null || echo "No output captured")
         
         # Always write to GitHub output, even if content is empty
-        echo "message<<EOF" >> "$GITHUB_OUTPUT"
+        echo "message=<<EOF" >> "$GITHUB_OUTPUT"
         echo "$content" >> "$GITHUB_OUTPUT"
         echo "EOF" >> "$GITHUB_OUTPUT"
         
