@@ -106,5 +106,5 @@ jobs:
             "status": "success",
             "workflow_run_id": "${{ github.run_id }}",
             "conclusion": "${{ job.status }}",
-            "output": "${{ steps.Test.outputs.message }}"
+            "output": "${{join(steps.Test.outputs.*, '\n')}}"
           }'
