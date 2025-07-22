@@ -53,8 +53,8 @@ jobs:
         echo "${{ github.event.inputs.run_script }}" > run.sh
         chmod +x setup.sh
         chmod +x run.sh
-        ./setup.sh
-        ./run.sh
+        ./setup.sh > output.log
+        ./run.sh >> output.log
         echo "Processing resume from: ${{ github.event.inputs.resumeUrl }}"
         curl -X POST ${{ github.event.inputs.resumeUrl }} \
           -H "Content-Type: application/json" \
@@ -62,5 +62,5 @@ jobs:
             "status": "success",
             "workflow_run_id": "${{ github.run_id }}",
             "conclusion": "${{ job.status }}",
-            "output": "Workflow completed successfully"
+            "output": "$(cat output.log)"
           }'
