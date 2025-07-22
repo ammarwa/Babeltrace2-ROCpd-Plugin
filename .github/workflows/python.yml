@@ -48,53 +48,101 @@ jobs:
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
     - name: Test
       if: ${{ github.event_name == 'workflow_dispatch' }}
+      continue-on-error: true
       run: |
         set +e  # Don't exit on errors
-    
-        # Initialize output log
-        touch output.log
+        
+        # Initialize separate log files
+        touch stdout.log stderr.log status.log
+        
+        # Function to log status with timestamp
+        log_status() {
+          echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a status.log
+        }
+        
+        log_status "Starting test execution"
         
         # Create scripts with proper escaping
-        cat << 'SETUP_EOF' > setup.sh || echo "Failed to create setup.sh" | tee -a output.log
+        if cat << 'SETUP_EOF' > setup.sh; then
         ${{ github.event.inputs.setup_script }}
         SETUP_EOF
+          log_status "Created setup.sh successfully"
+        else
+          log_status "Failed to create setup.sh"
+        fi
         
-        cat << 'RUN_EOF' > run.sh || echo "Failed to create run.sh" | tee -a output.log
+        if cat << 'RUN_EOF' > run.sh; then
         ${{ github.event.inputs.run_script }}
         RUN_EOF
+          log_status "Created run.sh successfully"
+        else
+          log_status "Failed to create run.sh"
+        fi
         
         # Make scripts executable
-        chmod +x setup.sh || echo "Failed to make setup.sh executable" | tee -a output.log
-        chmod +x run.sh || echo "Failed to make run.sh executable" | tee -a output.log
+        if chmod +x setup.sh; then
+          log_status "Made setup.sh executable"
+        else
+          log_status "Failed to make setup.sh executable"
+        fi
         
-        # Run setup script and capture output (always continue)
-        echo "=== Running setup script ===" | tee -a output.log
+        if chmod +x run.sh; then
+          log_status "Made run.sh executable"
+        else
+          log_status "Failed to make run.sh executable"
+        fi
+        
+        # Run setup script with separate stdout/stderr capture
+        log_status "Running setup script"
         if [ -x setup.sh ]; then
-          ./setup.sh 2>&1 | tee -a output.log || echo "Setup script failed but continuing..." | tee -a output.log
+          ./setup.sh >>stdout.log 2>>stderr.log
+          setup_exit=$?
+          if [ $setup_exit -eq 0 ]; then
+            log_status "Setup script completed successfully (exit code: $setup_exit)"
+          else
+            log_status "Setup script failed with exit code: $setup_exit"
+          fi
         else
-          echo "Setup script not executable or missing" | tee -a output.log
+          log_status "Setup script not executable or missing"
+          echo "Setup script not executable or missing" >> stderr.log
         fi
         
-        # Run the main script and append to output (always continue)
-        echo "=== Running main script ===" | tee -a output.log
+        # Run the main script with separate stdout/stderr capture
+        log_status "Running main script"
         if [ -x run.sh ]; then
-          ./run.sh 2>&1 | tee -a output.log || echo "Run script failed but continuing..." | tee -a output.log
+          ./run.sh >>stdout.log 2>>stderr.log
+          run_exit=$?
+          if [ $run_exit -eq 0 ]; then
+            log_status "Run script completed successfully (exit code: $run_exit)"
+          else
+            log_status "Run script failed with exit code: $run_exit"
+          fi
         else
-          echo "Run script not executable or missing" | tee -a output.log
+          log_status "Run script not executable or missing"
+          echo "Run script not executable or missing" >> stderr.log
         fi
         
-        # Always capture output, even if file is empty or commands failed
-        echo "=== Capturing final output ===" | tee -a output.log
+        log_status "Test execution completed"
         
-        # Get last 10 lines and properly format for GitHub output
-        content=$(tail -n 10 output.log 2>/dev/null || echo "No output captured")
+        # Capture last 10 lines of each output
+        stdout_content=$(tail -n 10 stdout.log 2>/dev/null || echo "No stdout captured")
+        stderr_content=$(tail -n 10 stderr.log 2>/dev/null || echo "No stderr captured")
+        status_content=$(tail -n 10 status.log 2>/dev/null || echo "No status captured")
         
-        # Always write to GitHub output, even if content is empty
-        echo "message=<<EOF" >> "$GITHUB_OUTPUT"
-        echo "$content" >> "$GITHUB_OUTPUT"
+        # Write separate outputs to GitHub
+        echo "stdout<<EOF" >> "$GITHUB_OUTPUT"
+        echo "$stdout_content" >> "$GITHUB_OUTPUT"
         echo "EOF" >> "$GITHUB_OUTPUT"
         
-        # Always exit successfully so step is marked as passed
+        echo "stderr<<EOF" >> "$GITHUB_OUTPUT"
+        echo "$stderr_content" >> "$GITHUB_OUTPUT"
+        echo "EOF" >> "$GITHUB_OUTPUT"
+        
+        echo "status<<EOF" >> "$GITHUB_OUTPUT"
+        echo "$status_content" >> "$GITHUB_OUTPUT"
+        echo "EOF" >> "$GITHUB_OUTPUT"
+        
+        # Always exit successfully
         exit 0
     - name: Resume N8N
       if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -106,5 +154,7 @@ jobs:
             "status": "success",
             "workflow_run_id": "${{ github.run_id }}",
             "conclusion": "${{ job.status }}",
-            "output": "${{join(steps.Test.outputs.*, '\n')}}"
+            "stdout": "${{ steps.test.outputs.stdout }}",
+            "stderr": "${{ steps.test.outputs.stderr }}",
+            "status": "${{ steps.test.outputs.status }}"
           }'
