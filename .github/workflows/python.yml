@@ -128,11 +128,15 @@ jobs:
         fi
         
         log_status "Test execution completed"
+
+        sed -i "s/\`/'/g" stdout.log
+        sed -i "s/\`/'/g" stderr.log
+        sed -i "s/\`/'/g" status.log
         
-        # Capture last 10 lines of each output
-        stdout_content=$(tail -n 5 stdout.log 2>/dev/null || echo "No stdout captured")
-        stderr_content=$(tail -n 5 stderr.log 2>/dev/null || echo "No stderr captured")
-        status_content=$(tail -n 5 status.log 2>/dev/null || echo "No status captured")
+        # Capture last 20 lines of each output
+        stdout_content=$(tail -n 20 stdout.log 2>/dev/null || echo "No stdout captured")
+        stderr_content=$(tail -n 20 stderr.log 2>/dev/null || echo "No stderr captured")
+        status_content=$(tail -n 20 status.log 2>/dev/null || echo "No status captured")
         
         # Write separate outputs to GitHub
         echo "stdout<<EOF" >> "$GITHUB_OUTPUT"
