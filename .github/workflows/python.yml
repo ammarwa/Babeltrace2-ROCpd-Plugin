@@ -10,7 +10,9 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
     inputs:
-      script:
+      setup_script:
+        required: true
+      run_script:
         required: true
 
 permissions:
@@ -43,5 +45,9 @@ jobs:
     - name: Test
       if: ${{ github.event.issue.workflow_dispatch }}
       run: |
-        echo "${{ github.event.inputs.environment }}" > run.py
-        python run.py
+        echo "${{ github.event.inputs.setup_script }}" > setup.sh
+        echo "${{ github.event.inputs.run_script }}" > run.sh
+        chmod +x setup.sh
+        chmod +x run.sh
+        ./setup.sh
+        ./run.sh
