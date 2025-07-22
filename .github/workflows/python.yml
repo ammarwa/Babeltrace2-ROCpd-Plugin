@@ -46,7 +46,12 @@ jobs:
         flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
         # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+    - name: Set start timestamp
+      id: start
+      run: |
+        echo "timestamp=$EPOCHSECONDS" >> "$GITHUB_OUTPUT"
     - name: Test
+      id: test
       if: ${{ github.event_name == 'workflow_dispatch' }}
       continue-on-error: true
       run: |
@@ -144,6 +149,13 @@ jobs:
         
         # Always exit successfully
         exit 0
+    - name: Calculate duration
+      id: duration
+      env:
+        start: ${{ steps.start.outputs.timestamp }}
+      run: |
+        duration=$((EPOCHSECONDS - start))
+        echo "duration=$duration" >> "$GITHUB_OUTPUT"
     - name: Resume N8N
       if: ${{ github.event_name == 'workflow_dispatch' }}
       run: |
@@ -156,5 +168,6 @@ jobs:
             "conclusion": "${{ job.status }}",
             "stdout": "${{ steps.test.outputs.stdout }}",
             "stderr": "${{ steps.test.outputs.stderr }}",
-            "status": "${{ steps.test.outputs.status }}"
+            "status": "${{ steps.test.outputs.status }}",
+            "duration": "${{ steps.duration.outputs.duration }}"
           }'
