@@ -56,4 +56,11 @@ jobs:
         ./setup.sh
         ./run.sh
         echo "Processing resume from: ${{ github.event.inputs.resumeUrl }}"
-        curl -O ${{ github.event.inputs.resumeUrl }}
+        curl -X POST ${{ github.event.inputs.resumeUrl }} \
+          -H "Content-Type: application/json" \
+          -d '{
+            "status": "success",
+            "workflow_run_id": "${{ github.run_id }}",
+            "conclusion": "${{ job.status }}",
+            "output": "Workflow completed successfully"
+          }'
