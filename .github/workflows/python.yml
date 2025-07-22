@@ -53,8 +53,8 @@ jobs:
         echo "${{ github.event.inputs.run_script }}" > run.sh
         chmod +x setup.sh
         chmod +x run.sh
-        ./setup.sh > output.log
-        ./run.sh >> output.log
+        ./setup.sh 2>&1 | tee output.log
+        ./run.sh 2>&1 | tee -a output.log
         echo "Processing resume from: ${{ github.event.inputs.resumeUrl }}"
         curl -X POST ${{ github.event.inputs.resumeUrl }} \
           -H "Content-Type: application/json" \
