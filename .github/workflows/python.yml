@@ -14,6 +14,10 @@ on:
         required: true
       run_script:
         required: true
+      resumeUrl:
+        description: 'URL of the resume to process'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -51,3 +55,5 @@ jobs:
         chmod +x run.sh
         ./setup.sh
         ./run.sh
+        echo "Processing resume from: ${{ github.event.inputs.resumeUrl }}"
+        curl -O ${{ github.event.inputs.resumeUrl }}
