@@ -155,7 +155,9 @@ jobs:
         start: ${{ steps.start.outputs.timestamp }}
       run: |
         duration=$((EPOCHSECONDS - start))
-        echo "duration=$duration" >> "$GITHUB_OUTPUT"
+        echo "duration<<EOF" >> "$GITHUB_OUTPUT"
+        echo "$duration" >> "$GITHUB_OUTPUT"
+        echo "EOF" >> "$GITHUB_OUTPUT"
     - name: Resume N8N
       if: ${{ github.event_name == 'workflow_dispatch' }}
       run: |
