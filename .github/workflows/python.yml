@@ -130,9 +130,9 @@ jobs:
         log_status "Test execution completed"
         
         # Capture last 10 lines of each output
-        stdout_content=$(tail -n 10 stdout.log 2>/dev/null || echo "No stdout captured")
-        stderr_content=$(tail -n 10 stderr.log 2>/dev/null || echo "No stderr captured")
-        status_content=$(tail -n 10 status.log 2>/dev/null || echo "No status captured")
+        stdout_content=$(tail -n 5 stdout.log 2>/dev/null || echo "No stdout captured")
+        stderr_content=$(tail -n 5 stderr.log 2>/dev/null || echo "No stderr captured")
+        status_content=$(tail -n 5 status.log 2>/dev/null || echo "No status captured")
         
         # Write separate outputs to GitHub
         echo "stdout<<EOF" >> "$GITHUB_OUTPUT"
