@@ -55,6 +55,10 @@ jobs:
         chmod +x run.sh
         ./setup.sh 2>&1 | tee output.log
         ./run.sh 2>&1 | tee -a output.log
+        echo "message=\"$(cat output.log)\"" >> "$GITHUB_OUTPUT"
+    - name: Resume N8N
+      if: ${{ github.event_name == 'workflow_dispatch' }}
+      run: |
         echo "Processing resume from: ${{ github.event.inputs.resumeUrl }}"
         curl -X POST ${{ github.event.inputs.resumeUrl }} \
           -H "Content-Type: application/json" \
@@ -62,5 +66,5 @@ jobs:
             "status": "success",
             "workflow_run_id": "${{ github.run_id }}",
             "conclusion": "${{ job.status }}",
-            "output": '$(cat output.log)'
+            "output": "${{ steps.Test.outputs.message }}"
           }'
