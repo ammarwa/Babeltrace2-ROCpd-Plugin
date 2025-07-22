@@ -55,7 +55,6 @@ jobs:
         chmod +x run.sh
         ./setup.sh 2>&1 | tee output.log
         ./run.sh 2>&1 | tee -a output.log
-        export OUTPUT_LOG="$(cat output.log)"
         echo "Processing resume from: ${{ github.event.inputs.resumeUrl }}"
         curl -X POST ${{ github.event.inputs.resumeUrl }} \
           -H "Content-Type: application/json" \
@@ -63,5 +62,5 @@ jobs:
             "status": "success",
             "workflow_run_id": "${{ github.run_id }}",
             "conclusion": "${{ job.status }}",
-            "output": "${OUTPUT_LOG}"
+            "output": "`cat output.log`"
           }'
