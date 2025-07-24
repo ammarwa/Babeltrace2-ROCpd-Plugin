@@ -10,9 +10,7 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
     inputs:
-      setup_script:
-        required: true
-      run_script:
+      script:
         required: true
       resumeUrl:
         description: 'URL of the resume to process'
@@ -69,19 +67,11 @@ jobs:
         
         # Create scripts with proper escaping
         if cat << 'SETUP_EOF' > setup.sh; then
-        ${{ github.event.inputs.setup_script }}
+        ${{ github.event.inputs.script }}
         SETUP_EOF
           log_status "Created setup.sh successfully"
         else
           log_status "Failed to create setup.sh"
-        fi
-        
-        if cat << 'RUN_EOF' > run.sh; then
-        ${{ github.event.inputs.run_script }}
-        RUN_EOF
-          log_status "Created run.sh successfully"
-        else
-          log_status "Failed to create run.sh"
         fi
         
         # Make scripts executable
@@ -89,12 +79,6 @@ jobs:
           log_status "Made setup.sh executable"
         else
           log_status "Failed to make setup.sh executable"
-        fi
-        
-        if chmod +x run.sh; then
-          log_status "Made run.sh executable"
-        else
-          log_status "Failed to make run.sh executable"
         fi
         
         # Run setup script with separate stdout/stderr capture
@@ -110,21 +94,6 @@ jobs:
         else
           log_status "Setup script not executable or missing"
           echo "Setup script not executable or missing" >> stderr.log
-        fi
-        
-        # Run the main script with separate stdout/stderr capture
-        log_status "Running main script"
-        if [ -x run.sh ]; then
-          ./run.sh >>stdout.log 2>>stderr.log
-          run_exit=$?
-          if [ $run_exit -eq 0 ]; then
-            log_status "Run script completed successfully (exit code: $run_exit)"
-          else
-            log_status "Run script failed with exit code: $run_exit"
-          fi
-        else
-          log_status "Run script not executable or missing"
-          echo "Run script not executable or missing" >> stderr.log
         fi
         
         log_status "Test execution completed"
