@@ -103,3 +103,14 @@ Additionally, a screenshot is provided to illustrate how the converted trace app
 ![Example CTF Trace Screenshot](examples/tracecompass.png)
 
 You can use these files to experiment with the plugin and verify its output.
+
+
+## [WIP] Using a custom babeltrace2 build.
+1) When configuring babeltrace2 use the following flags.
+  - `./configure --prefix=$INSTAL_PREFIX --enable-python-bindings --enable-python-plugins`
+2) Set your pythonpath to include the bindings for this babeltrace2 installation
+  - `export PYTHONPATH=${PYTHONPATH}:$INSTALL_PREFIX/lib/{python3-version}/site-packages`
+3) Now you can use the build babeltrace2.
+4) So far this has been tested with babeltrace 2.0.5
+   https://www.efficios.com/files/babeltrace/babeltrace2-2.0.5.tar.bz2
+
