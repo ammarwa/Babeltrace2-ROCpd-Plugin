@@ -493,9 +493,146 @@ def streaming_emit(db_path: str, *, base_stream_path: pathlib.Path, packet_bytes
         print(f"[debug] streaming total_events={total_emitted} segments={segment_idx+1}")
     return total_emitted
 
+#
+# Multi-database streaming emitter
+#
+# Similar to streaming_emit(), but accepts a list of database paths. It merges
+# events across all provided databases, ensuring that if sorting is enabled the
+# timestamps are ordered globally. When sorting is disabled, events are emitted
+# in the order that their iterators were added (which may interleave views but
+# does not guarantee global ordering across databases). Each iterator yields
+# events from a specific view in a specific database. This function handles
+# progress reporting, stream splitting on timestamp decreases, and resource
+# cleanup for all opened connections.
+def streaming_emit_multi(
+    db_paths: Sequence[str],
+    *,
+    base_stream_path: pathlib.Path,
+    packet_bytes: int,
+    sort_events: bool,
+    split_on_decrease: bool,
+    show_progress: bool,
+    expected_total: int,
+    fetch_chunk: int,
+    debug: bool = False,
+    debug_n: int = 5,
+) -> int:
+    """Emit a CTF trace from multiple SQLite databases in a streaming fashion.
+
+    Parameters mirror those of streaming_emit(), except that `db_paths` is a
+    sequence of database filenames instead of a single string. The function
+    opens each database, gathers appropriate iterators for all supported views,
+    and merges them into a single stream of events. The expected_total
+    parameter should reflect the total number of events across all databases
+    (including start/end pairs).
+
+    Returns the total number of events emitted.
+    """
+    # Open all databases and create iterators for each view
+    conns: List[sqlite3.Connection] = []
+    iterators = []
+    for db_path in db_paths:
+        try:
+            conn = sqlite3.connect(db_path)
+        except Exception:
+            # Skip invalid or missing databases
+            continue
+        conns.append(conn)
+        views_present = set(list_views(conn))
+        if 'regions' in views_present:
+            iterators.append(_iter_regions(conn, fetch_chunk))
+        if 'kernels' in views_present:
+            iterators.append(_iter_kernels(conn, fetch_chunk))
+        if 'memory_copies' in views_present:
+            iterators.append(_iter_memcpy(conn, fetch_chunk))
+        if 'memory_allocations' in views_present:
+            iterators.append(_iter_memalloc(conn, fetch_chunk))
+        # counters last
+        it_cnt = _iter_counters(conn, fetch_chunk)
+        if it_cnt:
+            iterators.append(it_cnt)
+
+    total_emitted = 0
+    prev_ts = None
+    segment_idx = 0
+    # Initialize the trace
+    lib.rocpd_init(os.fspath(base_stream_path).encode(), ctypes.c_uint32(packet_bytes))
+    progress_update, progress_finish = _progress_printer(
+        expected_total, show_progress, label="Stream", incremental=True
+    )
+    try:
+        if not sort_events:
+            # When not sorting, emit in the order iterators were added. This
+            # preserves the per-view ordering but does not globally sort across
+            # databases.
+            for it in iterators:
+                for ts, payload in it:
+                    if split_on_decrease and prev_ts is not None and ts < prev_ts:
+                        lib.rocpd_close()
+                        segment_idx += 1
+                        lib.rocpd_init(
+                            os.fspath(base_stream_path.parent / f"{base_stream_path.name}_{segment_idx}").encode(),
+                            ctypes.c_uint32(packet_bytes),
+                        )
+                    _emit_event(payload, ts)
+                    prev_ts = ts
+                    total_emitted += 1
+                    progress_update(1)
+        else:
+            # When sorting is requested, perform a heap merge across all
+            # iterators, similar to streaming_emit(). The heap stores tuples of
+            # (timestamp, sequence_number, payload, iterator). The sequence
+            # number ensures stability when timestamps are equal.
+            heap = []
+            counter_iter = itertools.count()
+            for it in iterators:
+                try:
+                    first = next(it)
+                except StopIteration:
+                    continue
+                heapq.heappush(heap, (first[0], next(counter_iter), first[1], it))
+            while heap:
+                ts, _seq, payload, it = heapq.heappop(heap)
+                if split_on_decrease and prev_ts is not None and ts < prev_ts:
+                    lib.rocpd_close()
+                    segment_idx += 1
+                    lib.rocpd_init(
+                        os.fspath(base_stream_path.parent / f"{base_stream_path.name}_{segment_idx}").encode(),
+                        ctypes.c_uint32(packet_bytes),
+                    )
+                _emit_event(payload, ts)
+                prev_ts = ts
+                total_emitted += 1
+                progress_update(1)
+                try:
+                    nxt = next(it)
+                    heapq.heappush(heap, (nxt[0], next(counter_iter), nxt[1], it))
+                except StopIteration:
+                    pass
+    finally:
+        # Close the active stream and clean up connections
+        lib.rocpd_close()
+        progress_finish()
+        for conn in conns:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    if debug:
+        print(f"[debug] streaming total_events={total_emitted} segments={segment_idx+1}")
+    return total_emitted
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--db', required=True)
+    # Accept one or more database files. Multiple --db options may be provided, or
+    # a single argument may contain a comma-separated list. This enables
+    # converting multiple ROCpd SQLite databases in a single invocation.
+    ap.add_argument(
+        '--db',
+        required=True,
+        action='append',
+        help='One or more SQLite database files (can be provided multiple times or comma-separated).'
+    )
     ap.add_argument('--out', required=True)
     ap.add_argument('--packet-bytes', type=int, default=262144)
     ap.add_argument('--metadata-src', default=str(THIS_DIR / 'gen' / 'metadata'))
@@ -511,107 +648,173 @@ def main():
 
     print("Preparing for Conversion...")
 
-    out_dir = pathlib.Path(args.out); out_dir.mkdir(parents=True, exist_ok=True)
+    # Normalize database arguments: args.db is a list of strings (one per --db)
+    # Each entry may contain comma-separated filenames. Split on comma and
+    # os.pathsep to build a flat list of database paths.
+    db_inputs: List[str] = []
+    for entry in (args.db or []):
+        # Each entry could be a single filename or a comma-separated list
+        for part in str(entry).split(','):
+            # On some systems, users might separate paths with os.pathsep
+            for subpart in part.split(os.pathsep):
+                subpart = subpart.strip()
+                if subpart:
+                    db_inputs.append(subpart)
+
+    out_dir = pathlib.Path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
     # Copy metadata first
     try:
-        src = pathlib.Path(args.metadata_src); dst = out_dir / 'metadata'
+        src = pathlib.Path(args.metadata_src)
+        dst = out_dir / 'metadata'
         if src.is_file():
             if not dst.exists() or src.read_bytes() != dst.read_bytes():
-                shutil.copy2(src,dst)
+                shutil.copy2(src, dst)
     except Exception as e:
         print(f"Warning: metadata copy failed: {e}")
 
     stream_path = out_dir / args.stream_name
     events: List[Tuple[int, Tuple]] = []  # only used in non-streaming mode
-    # Precompute expected total events using parallel COUNT(*) queries
+    # Precompute expected total events across all databases using parallel COUNT(*) queries
     expected_total = 0
-    try:
-        conn = sqlite3.connect(args.db)
-        with conn:
-            views_present = set(list_views(conn))
-            counts = _parallel_counts(args.db, views_present)
-            reg_count = counts.get('regions',0)
-            marker_only = counts.get('marker_core',0)
-            expected_total += reg_count * 2 - marker_only
-            expected_total += counts.get('kernels',0) * 2
-            expected_total += counts.get('memory_copies',0) * 2
-            expected_total += counts.get('memory_allocations',0) * 2
-            expected_total += counts.get('counters',0)
-
-            print("Finished Preparation Step!")
-            print("Collecting Events from ROCpd Database...")
-
-            if args.streaming:
-                # Streaming path: collection+emission combined after we exit 'with conn'
-                pass
-            else:
-                collect_threads = max(1, args.collect_threads)
-                if collect_threads == 1:
-                    collect_progress_update, collect_progress_finish = _progress_printer(expected_total, not args.no_progress, label="Collect", incremental=True)
-                    collect_regions(conn, events, collect_progress_update)
-                    collect_kernel_dispatch(conn, events, collect_progress_update)
-                    collect_memcpy_view(conn, events, collect_progress_update)
-                    collect_memalloc_view(conn, events, collect_progress_update)
-                    collect_counter_collection(conn, events, collect_progress_update)
-                    collect_progress_finish()
-                else:
-                    collect_progress_update, collect_progress_finish = _progress_printer(expected_total, not args.no_progress, label="Collect", incremental=True, thread_safe=True)
-                    tasks = []
-                    def task_wrapper(view_name, func):
-                        local_events: List[Tuple[int, Tuple]] = []
-                        try:
-                            with sqlite3.connect(args.db) as c2:
-                                func(c2, local_events, collect_progress_update)
-                        except Exception:
-                            pass
-                        return local_events
-                    if 'regions' in views_present: tasks.append(('regions', collect_regions))
-                    if 'kernels' in views_present: tasks.append(('kernels', collect_kernel_dispatch))
-                    if 'memory_copies' in views_present: tasks.append(('memory_copies', collect_memcpy_view))
-                    if 'memory_allocations' in views_present: tasks.append(('memory_allocations', collect_memalloc_view))
-                    for name in ('counters_collection','counter_collection','counters'):
-                        if name in views_present: tasks.append((name, collect_counter_collection)); break
-                    with ThreadPoolExecutor(max_workers=min(collect_threads, len(tasks))) as exe:
-                        futures = [exe.submit(task_wrapper, n, f) for n,f in tasks]
-                        for fut in futures: events.extend(fut.result())
-                    collect_progress_finish()
-
-                    print("Finished Collection Step!")
-
-        print("Emitting Events to CTF Trace...")
-        if args.streaming:
-            total = streaming_emit(
-                args.db,
-                base_stream_path=stream_path,
-                packet_bytes=args.packet_bytes,
-                sort_events=not args.no_sort,
-                split_on_decrease=args.split_on_decrease,
-                show_progress=not args.no_progress,
-                expected_total=expected_total,
-                fetch_chunk=args.fetch_chunk,
-                debug=args.debug,
-                debug_n=5,
-            )
-        else:
-            total = emit_events(
-                events,
-                debug=args.debug,
-                sort_events=not args.no_sort,
-                split_on_decrease=args.split_on_decrease,
-                base_stream_path=stream_path,
-                packet_bytes=args.packet_bytes,
-                show_progress=not args.no_progress,
-            )
-    finally:
-        # Ensure closed if an exception occurred before internal emitter closed.
+    # Determine per-DB views present for use later in non-streaming collection
+    db_views_map: Dict[str, set] = {}
+    for db_path in db_inputs:
         try:
-            lib.rocpd_close()
-        except Exception:
-            pass
+            with sqlite3.connect(db_path) as conn:
+                views_present = set(list_views(conn))
+                db_views_map[db_path] = views_present
+                counts = _parallel_counts(db_path, views_present)
+                reg_count = counts.get('regions', 0)
+                marker_only = counts.get('marker_core', 0)
+                expected_total += reg_count * 2 - marker_only
+                expected_total += counts.get('kernels', 0) * 2
+                expected_total += counts.get('memory_copies', 0) * 2
+                expected_total += counts.get('memory_allocations', 0) * 2
+                expected_total += counts.get('counters', 0)
+        except Exception as e:
+            print(f"Warning: could not read {db_path}: {e}")
+            db_views_map[db_path] = set()
+
+    print("Finished Preparation Step!")
+    print("Collecting Events from ROCpd Database...")
+
+    if args.streaming:
+        # Streaming path: no pre-collection; emission happens within streaming_emit_multi()
+        pass
+    else:
+        collect_threads = max(1, args.collect_threads)
+        if collect_threads == 1:
+            # Single-threaded collection across all databases
+            collect_progress_update, collect_progress_finish = _progress_printer(
+                expected_total, not args.no_progress, label="Collect", incremental=True
+            )
+            for db_path in db_inputs:
+                views_present = db_views_map.get(db_path, set())
+                try:
+                    with sqlite3.connect(db_path) as conn:
+                        if 'regions' in views_present:
+                            collect_regions(conn, events, collect_progress_update)
+                        if 'kernels' in views_present:
+                            collect_kernel_dispatch(conn, events, collect_progress_update)
+                        if 'memory_copies' in views_present:
+                            collect_memcpy_view(conn, events, collect_progress_update)
+                        if 'memory_allocations' in views_present:
+                            collect_memalloc_view(conn, events, collect_progress_update)
+                        # counters last
+                        if any(name in views_present for name in ('counters_collection', 'counter_collection', 'counters')):
+                            collect_counter_collection(conn, events, collect_progress_update)
+                except Exception:
+                    # Skip errors on individual databases
+                    continue
+            collect_progress_finish()
+        else:
+            # Multi-threaded collection: build tasks for each database and view
+            collect_progress_update, collect_progress_finish = _progress_printer(
+                expected_total, not args.no_progress, label="Collect", incremental=True, thread_safe=True
+            )
+            tasks: List[Tuple[str, str, Callable]] = []
+
+            def task_wrapper(db_path: str, view_name: str, func: Callable[[sqlite3.Connection, List[Tuple], Optional[Callable[[int], None]]], int]):
+                local_events: List[Tuple[int, Tuple]] = []
+                try:
+                    with sqlite3.connect(db_path) as c2:
+                        func(c2, local_events, collect_progress_update)
+                except Exception:
+                    # ignore failures for this view
+                    pass
+                return local_events
+
+            for db_path, views_present in db_views_map.items():
+                if 'regions' in views_present:
+                    tasks.append((db_path, 'regions', collect_regions))
+                if 'kernels' in views_present:
+                    tasks.append((db_path, 'kernels', collect_kernel_dispatch))
+                if 'memory_copies' in views_present:
+                    tasks.append((db_path, 'memory_copies', collect_memcpy_view))
+                if 'memory_allocations' in views_present:
+                    tasks.append((db_path, 'memory_allocations', collect_memalloc_view))
+                # counters last; only one candidate per DB
+                for name in ('counters_collection', 'counter_collection', 'counters'):
+                    if name in views_present:
+                        tasks.append((db_path, name, collect_counter_collection))
+                        break
+            # Launch tasks with a thread pool. The number of workers is limited
+            # to avoid oversubscribing. Each task collects events for a single
+            # view in a specific database.
+            with ThreadPoolExecutor(max_workers=min(collect_threads, len(tasks))) as exe:
+                futures = [exe.submit(task_wrapper, d, n, f) for d, n, f in tasks]
+                for fut in futures:
+                    try:
+                        result = fut.result()
+                        events.extend(result)
+                    except Exception:
+                        pass
+            collect_progress_finish()
+        print("Finished Collection Step!")
+
+    print("Emitting Events to CTF Trace...")
+    if args.streaming:
+        # In streaming mode, emit events directly from databases without
+        # preloading all events into memory. Use multi-database streaming emitter.
+        total = streaming_emit_multi(
+            db_inputs,
+            base_stream_path=stream_path,
+            packet_bytes=args.packet_bytes,
+            sort_events=not args.no_sort,
+            split_on_decrease=args.split_on_decrease,
+            show_progress=not args.no_progress,
+            expected_total=expected_total,
+            fetch_chunk=args.fetch_chunk,
+            debug=args.debug,
+            debug_n=5,
+        )
+    else:
+        # Non-streaming mode: emit events collected from all databases. The
+        # aggregated events list may be large for many or large databases.
+        total = emit_events(
+            events,
+            debug=args.debug,
+            sort_events=not args.no_sort,
+            split_on_decrease=args.split_on_decrease,
+            base_stream_path=stream_path,
+            packet_bytes=args.packet_bytes,
+            show_progress=not args.no_progress,
+        )
+    # At this point, all events have been emitted. If an exception was thrown
+    # earlier, ensure the trace is closed.
+    # lib.rocpd_close() may have been closed already; call defensively.
+    try:
+        lib.rocpd_close()
+    except Exception:
+        pass
     mode_desc = []
-    if args.no_sort: mode_desc.append('original-order')
-    else: mode_desc.append('sorted')
-    if args.split_on_decrease: mode_desc.append('split-on-decrease')
+    if args.no_sort:
+        mode_desc.append('original-order')
+    else:
+        mode_desc.append('sorted')
+    if args.split_on_decrease:
+        mode_desc.append('split-on-decrease')
     print(f"Emitted {total} events to {args.out} ({', '.join(mode_desc)})")
 
 if __name__ == '__main__':
