@@ -7,3 +7,5 @@ dataclasses  # Built into Python 3.7+, backport available for older versions
 # Optional dependencies for development/testing
 pytest>=6.0.0     # For running tests
 pytest-cov>=2.0.0 # For coverage reports
+
+barectf
