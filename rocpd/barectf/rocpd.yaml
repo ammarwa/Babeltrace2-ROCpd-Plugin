@@ -1,0 +1,236 @@
+# Updated barectf configuration to MATCH the provided existing metadata layout.
+# Events reproduced (names & field order) so that generated metadata is identical
+# to the attached sample trace's event payload structures.
+--- !<tag:barectf.org,2020/3/config>
+
+trace:
+  type:
+    $include:
+      - stdint.yaml
+      - stdmisc.yaml
+      - stdreal.yaml
+
+    native-byte-order: little-endian
+    clock-types:
+      rocm_clock:                # Match sample metadata clock name
+        frequency: 1000000000    # nanosecond timestamps
+        $c-type: uint64_t
+
+    data-stream-types:
+      default:
+        $is-default: true
+
+        $default-clock-type-name: rocm_clock
+
+        event-record-types:
+          # ---------------- Region events (shared payload) ----------------
+          hip_compiler_region_event_start: &region_payload
+            payload-field-type:
+              class: structure
+              members:
+                - _region_id: int64
+                - _guid: string
+                - _name: string
+                - _category: string
+                - _nid: int64
+                - _pid: int64
+                - _tid: int64
+                - _event_id: int64
+                - _stack_id: int64
+                - _parent_stack_id: int64
+                - _correlation_id: int64
+                - _duration: int64
+                - _extdata: string
+                - _call_stack: string
+                - _line_info: string
+
+          hip_compiler_region_event_end:
+            <<: *region_payload
+
+          hip_runtime_region_event_start:
+            <<: *region_payload
+
+          hip_runtime_region_event_end:
+            <<: *region_payload
+
+          hsa_core_region_event_start:
+            <<: *region_payload
+
+          hsa_core_region_event_end:
+            <<: *region_payload
+
+          hsa_amd_ext_region_event_start:
+            <<: *region_payload
+
+          hsa_amd_ext_region_event_end:
+            <<: *region_payload
+
+          marker_core_region_event_start:
+            <<: *region_payload
+
+          # ---------------- Memory allocation events ----------------
+          memory_allocation_event_start: &memalloc_payload
+            payload-field-type:
+              class: structure
+              members:
+                - _allocation_id: int64
+                - _guid: string
+                - _category: string
+                - _nid: int64
+                - _pid: int64
+                - _tid: int64
+                - _allocation_type: string
+                - _level: string
+                - _agent_name: string
+                - _agent_abs_index: int64
+                - _agent_log_index: int64
+                - _agent_type_index: int64
+                - _agent_type: string
+                - _address: int64
+                - _size: int64
+                - _queue_id: int64
+                - _queue_name: string
+                - _stream_id: int64
+                - _stream_name: string
+                - _stack_id: int64
+                - _parent_stack_id: int64
+                - _correlation_id: int64
+                - _duration: int64
+
+          memory_allocation_event_end:
+            <<: *memalloc_payload
+
+          # ---------------- Memory copy events ----------------
+          memory_copy_event_start: &memcpy_payload
+            payload-field-type:
+              class: structure
+              members:
+                - _copy_id: int64
+                - _guid: string
+                - _category: string
+                - _nid: int64
+                - _pid: int64
+                - _tid: int64
+                - _name: string
+                - _region_name: string
+                - _stream_id: int64
+                - _queue_id: int64
+                - _stream_name: string
+                - _queue_name: string
+                - _size: int64
+                - _dst_device: string
+                - _dst_agent_abs_index: int64
+                - _dst_agent_log_index: int64
+                - _dst_agent_type_index: int64
+                - _dst_agent_type: string
+                - _dst_address: int64
+                - _src_device: string
+                - _src_agent_abs_index: int64
+                - _src_agent_log_index: int64
+                - _src_agent_type_index: int64
+                - _src_agent_type: string
+                - _src_address: int64
+                - _stack_id: int64
+                - _parent_stack_id: int64
+                - _correlation_id: int64
+                - _duration: int64
+
+          memory_copy_event_end:
+            <<: *memcpy_payload
+
+          # ---------------- Kernel dispatch events ----------------
+          kernel_dispatch_event_start: &kernel_payload
+            payload-field-type:
+              class: structure
+              members:
+                - _kernel_id: int64
+                - _guid: string
+                - _tid: int64
+                - _category: string
+                - _region: string
+                - _name: string
+                - _nid: int64
+                - _pid: int64
+                - _agent_abs_index: int64
+                - _agent_log_index: int64
+                - _agent_type_index: int64
+                - _agent_type: string
+                - _code_object_id: int64
+                - _kernel_symbol_id: int64
+                - _dispatch_id: int64
+                - _stream_id: int64
+                - _queue_id: int64
+                - _queue_name: string
+                - _stream_name: string
+                - _grid_size_x: int64
+                - _grid_size_y: int64
+                - _grid_size_z: int64
+                - _workgroup_size_x: int64
+                - _workgroup_size_y: int64
+                - _workgroup_size_z: int64
+                - _lds_size: int64
+                - _scratch_size: int64
+                - _static_lds_size: int64
+                - _static_scratch_size: int64
+                - _stack_id: int64
+                - _parent_stack_id: int64
+                - _correlation_id: int64
+                - _duration: int64
+
+          kernel_dispatch_event_end:
+            <<: *kernel_payload
+
+          # ---------------- Counter collection event (single) ----------------
+          counter_collection_event:
+            payload-field-type:
+              class: structure
+              members:
+                - _id: int64
+                - _guid: string
+                - _dispatch_id: int64
+                - _kernel_id: int64
+                - _event_id: int64
+                - _correlation_id: int64
+                - _stack_id: int64
+                - _parent_stack_id: int64
+                - _pid: int64
+                - _tid: int64
+                - _agent_id: int64
+                - _agent_abs_index: int64
+                - _agent_log_index: int64
+                - _agent_type_index: int64
+                - _agent_type: string
+                - _queue_id: int64
+                - _grid_size_x: int64
+                - _grid_size_y: int64
+                - _grid_size_z: int64
+                - _name: string
+                - _kernel_region: string
+                - _workgroup_size_x: int64
+                - _workgroup_size_y: int64
+                - _workgroup_size_z: int64
+                - _lds_block_size: int64
+                - _scratch_size: int64
+                - _vgpr_count: int64
+                - _accum_vgpr_count: int64
+                - _sgpr_count: int64
+                - _counter_name: string
+                - _counter_symbol: string
+                - _component: string
+                - _description: string
+                - _block: string
+                - _expression: string
+                - _value_type: string
+                - _counter_id: int64
+                - _value: double
+                - _start: int64
+                - _end: int64
+                - _is_constant: int64
+                - _is_derived: int64
+                - _duration: int64
+                - _category: string
+                - _nid: int64
+                - _extdata: string
+                - _code_object_id: int64
+
+# NOTE: Add further events here if the sample metadata contains more definitions.
