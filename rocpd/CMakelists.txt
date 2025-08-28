@@ -19,7 +19,8 @@ file(REMOVE_RECURSE "${ROCPD_STAGE_DIR}")
 file(MAKE_DIRECTORY "${ROCPD_STAGE_DIR}")
 file(COPY "${ROCPD_SRC_DIR}" DESTINATION "${ROCPD_STAGE_DIR}")
 
-# Write a minimal setup.py that explicitly packages only the rocpd package.
+# Write a minimal setup.py that explicitly packages only the rocpd package
+# and includes the native shared object + metadata file.
 file(WRITE "${ROCPD_STAGE_DIR}/setup.py"
 "from setuptools import setup, find_packages\n"
 "setup(\n"
@@ -27,9 +28,30 @@ file(WRITE "${ROCPD_STAGE_DIR}/setup.py"
 "    version='${ROCPD_VERSION}',\n"
 "    packages=find_packages(),\n"
 "    description='Minimal ROCpd Python interface with CTF support',\n"
-"    python_requires='>=3.7',\n"
+"    python_requires='>=3.6',\n"
+"    package_data={'rocpd': ['librocpd_barectf*.so', 'metadata']},\n"
+"    include_package_data=True,\n"
 ")\n"
 )
+
+# After building the barectf library, copy artifacts (lib + metadata) into staged package.
+# Library target is defined in subdirectory added later.
+set(ROCPD_LIB_TARGET rocpd_barectf)
+set(ROCPD_METADATA_SRC "${CMAKE_BINARY_DIR}/barectf/gen/metadata")
+set(ROCPD_STAGED_LIB "${ROCPD_STAGE_DIR}/rocpd/librocpd_barectf.so")
+set(ROCPD_STAGED_METADATA "${ROCPD_STAGE_DIR}/rocpd/metadata")
+
+add_custom_command(OUTPUT ${ROCPD_STAGED_LIB}
+  COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${ROCPD_LIB_TARGET}> ${ROCPD_STAGED_LIB}
+  DEPENDS ${ROCPD_LIB_TARGET}
+  COMMENT "Staging native library into wheel package")
+
+add_custom_command(OUTPUT ${ROCPD_STAGED_METADATA}
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different ${ROCPD_METADATA_SRC} ${ROCPD_STAGED_METADATA}
+  DEPENDS ${ROCPD_LIB_TARGET} ${ROCPD_METADATA_SRC}
+  COMMENT "Staging metadata file into wheel package")
+
+add_custom_target(rocpd_stage_assets DEPENDS ${ROCPD_STAGED_LIB} ${ROCPD_STAGED_METADATA})
 
 # List of per-version wheel targets
 set(WHEEL_TARGETS)
@@ -56,6 +78,7 @@ foreach(ver IN LISTS ROCPD_PYTHON_VERSIONS)
     COMMAND "${PYTHON_EXEC_${ver_nodot}}" -m pip install --quiet --upgrade build setuptools wheel
     COMMAND "${PYTHON_EXEC_${ver_nodot}}" -m build --wheel --no-isolation --outdir "${dist_dir}"
     WORKING_DIRECTORY "${ROCPD_STAGE_DIR}"
+    DEPENDS rocpd_stage_assets
     COMMENT "Building rocpd ${ROCPD_VERSION} wheel for Python ${ver}"
     VERBATIM
   )
