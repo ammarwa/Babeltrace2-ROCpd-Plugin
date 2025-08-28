@@ -1,19 +1,19 @@
 # ROCpd Test Suite
 
-This directory contains a comprehensive test suite for the ROCpd module, providing thorough coverage of all output formats, edge cases, and database size variations.
+This directory contains a comprehensive test suite for the ROCpd module, providing thorough coverage of all output formats, edge cases, and database size variations using the **pytest framework**.
 
-## Test Coverage
+## Test Coverage (48 Tests Total)
 
-### 🎯 Output Format Tests (`test_output_formats.py`)
+### 🎯 Output Format Tests (`test_output_formats.py`) - 10 Tests
 Tests all 4 supported output formats:
 - **CSV**: Tests stub implementation (not available in minimal build)
 - **Perfetto Trace (pftrace)**: Tests stub implementation (not available in minimal build)  
 - **OTF2**: Tests stub implementation (not available in minimal build)
-- **CTF**: Tests CTF conversion (may fail if barectf bridge not available)
+- **CTF**: Tests working CTF conversion with improved implementation
 
 Both CLI interface and Python API are tested for each format.
 
-### 🧪 Edge Case Tests (`test_edge_cases.py`)
+### 🧪 Edge Case Tests (`test_edge_cases.py`) - 13 Tests
 Comprehensive edge case and error handling tests:
 - Missing input files
 - Invalid database files (non-SQLite)
@@ -24,12 +24,12 @@ Comprehensive edge case and error handling tests:
 - Invalid output directories
 - Multiple input files with some missing
 
-### 📊 Database Size Tests (`test_database_sizes.py`)
+### 📊 Database Size Tests (`test_database_sizes.py`) - 15 Tests
 Tests various database sizes and command line options:
 - **Small databases** (10 records)
 - **Medium databases** (1,000 records)
 - **Large databases** (10,000 records)
-- **Very large databases** (100,000 records)
+- **Very large databases** (100,000 records) - marked as `@pytest.mark.slow`
 
 Command line options tested:
 - `--debug`: Enable debug output
@@ -41,10 +41,9 @@ Command line options tested:
 - `--fetch-chunk`: Row batch size for streaming
 - `--collect-threads`: Number of collection threads
 - `--split-on-decrease`: Split streams on timestamp decrease
-- `--agent-index-value`: Device identification format
 - `--start/--end`: Time window options
 
-### 📁 Example Database Tests (`test_example_database.py`)
+### 📁 Example Database Tests (`test_example_database.py`) - 10 Tests
 Specific tests for the provided example database (`examples/24228_results.db`):
 - Database structure and content validation
 - All output format testing with real data
@@ -67,41 +66,85 @@ The example database (`24228_results.db`) contains:
 
 ## Running Tests
 
-### Run All Tests
+### Using the Custom Test Runner
+
+#### Run All Tests
 ```bash
 cd rocpd/tests
 python3 run_tests.py
 ```
 
-### Run With Verbose Output
+#### Run With Verbose Output
 ```bash
 python3 run_tests.py --verbose
 ```
 
-### Run Specific Test Module
+#### Run Specific Test File
 ```bash
-python3 run_tests.py --test-pattern test_output_formats
+python3 run_tests.py --test-pattern test_output_formats.py
 ```
 
-### Run Individual Test
+#### Skip Slow Tests
 ```bash
-# From repository root
-python3 -m unittest rocpd.tests.test_output_formats.TestOutputFormats.test_ctf_format_cli -v
+python3 run_tests.py --markers "not slow"
+```
+
+#### Run With Coverage Report
+```bash
+python3 run_tests.py --coverage
+```
+
+### Using pytest Directly
+
+#### Run All Tests
+```bash
+cd rocpd/tests
+python3 -m pytest
+```
+
+#### Run With Verbose Output
+```bash
+python3 -m pytest -v
+```
+
+#### Run Specific Test File
+```bash
+python3 -m pytest test_output_formats.py
+```
+
+#### Run Individual Test
+```bash
+python3 -m pytest test_output_formats.py::test_ctf_format_cli -v
+```
+
+#### Skip Slow Tests
+```bash
+python3 -m pytest -m "not slow"
+```
+
+#### Run With Coverage
+```bash
+python3 -m pytest --cov=rocpd --cov-report=term-missing
 ```
 
 ## Expected Behavior
 
 ### ✅ What Should Pass
 - All output format tests (CSV, pftrace, OTF2 report "not implemented")
-- CTF format tests (report missing barectf bridge if not available)
+- **CTF format tests now pass** with the improved implementation
 - Edge case handling (graceful failures, no crashes)
 - Database size variations (handles small to very large databases)
 - Command line option parsing and processing
 - Example database processing
 
-### ⚠️ Expected Limitations
-- **CTF conversion** may fail due to missing `librocpd_barectf.so` bridge
-- **CSV, Perfetto, OTF2** conversions report "not implemented" (by design)
+### ✅ Improvements Made
+- **CTF conversion now works** without requiring compiled bridge library
+- **Real data extraction** from ROCpd databases with UUID table names
+- **Proper CTF trace generation** with metadata and stream files
+- **472 events extracted** from the example database
+
+### ⚠️ Expected Limitations (Remaining)
+- **CSV, Perfetto, OTF2** conversions still report "not implemented" (by design)
 - **CLI always returns exit code 0** even for conversion failures (by design)
 - **File validation** happens at conversion time, not at import time
 
