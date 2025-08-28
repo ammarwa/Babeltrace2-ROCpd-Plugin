@@ -1,1 +1,2 @@
 barectf
+packaging>=24.2

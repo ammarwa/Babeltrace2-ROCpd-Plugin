@@ -1,0 +1,73 @@
+cmake_minimum_required(VERSION 3.16)
+project(rocpd-wheel NONE)
+
+# Python versions to build wheels for (semicolon-separated list)
+set(ROCPD_PYTHON_VERSIONS "3.10" CACHE STRING
+    "Python versions to build rocpd wheels for")
+
+# Package version
+set(ROCPD_VERSION "0.1.0")
+
+# Path to the source package we want to package
+set(ROCPD_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../rocpd")
+
+# Staging directory where we assemble the package for each wheel build
+set(ROCPD_STAGE_DIR "${CMAKE_CURRENT_BINARY_DIR}/rocpd_pkg")
+
+# Clean staging dir and copy sources
+file(REMOVE_RECURSE "${ROCPD_STAGE_DIR}")
+file(MAKE_DIRECTORY "${ROCPD_STAGE_DIR}")
+file(COPY "${ROCPD_SRC_DIR}" DESTINATION "${ROCPD_STAGE_DIR}")
+
+# Write a minimal setup.py that explicitly packages only the rocpd package.
+file(WRITE "${ROCPD_STAGE_DIR}/setup.py"
+"from setuptools import setup, find_packages\n"
+"setup(\n"
+"    name='rocpd',\n"
+"    version='${ROCPD_VERSION}',\n"
+"    packages=find_packages(),\n"
+"    description='Minimal ROCpd Python interface with CTF support',\n"
+"    python_requires='>=3.7',\n"
+")\n"
+)
+
+# List of per-version wheel targets
+set(WHEEL_TARGETS)
+
+foreach(ver IN LISTS ROCPD_PYTHON_VERSIONS)
+  # Remove dots for a valid target name: 3.10 -> 310
+  string(REPLACE "." "" ver_nodot "${ver}")
+
+  find_program(PYTHON_EXEC_${ver_nodot}
+    NAMES "python${ver}" "python${ver}m"
+    DOC "Python ${ver} interpreter"
+  )
+  if(NOT PYTHON_EXEC_${ver_nodot})
+    message(WARNING "Python ${ver} not found; skipping wheel for this version")
+    continue()
+  endif()
+
+  # Where to drop the wheel for this Python version
+  set(dist_dir "${CMAKE_CURRENT_BINARY_DIR}/dist-${ver}")
+  file(MAKE_DIRECTORY "${dist_dir}")
+
+  # Define a target that installs build tools and builds the wheel
+  add_custom_target(rocpd_wheel_${ver_nodot} ALL
+    COMMAND "${PYTHON_EXEC_${ver_nodot}}" -m pip install --quiet --upgrade build setuptools wheel
+    COMMAND "${PYTHON_EXEC_${ver_nodot}}" -m build --wheel --no-isolation --outdir "${dist_dir}"
+    WORKING_DIRECTORY "${ROCPD_STAGE_DIR}"
+    COMMENT "Building rocpd ${ROCPD_VERSION} wheel for Python ${ver}"
+    VERBATIM
+  )
+  list(APPEND WHEEL_TARGETS rocpd_wheel_${ver_nodot})
+endforeach()
+
+# Aggregate target to build all wheels
+if(WHEEL_TARGETS)
+  add_custom_target(rocpd_wheels ALL DEPENDS ${WHEEL_TARGETS})
+else()
+  add_custom_target(rocpd_wheels ALL
+    COMMENT "No matching Python versions were found; no wheels will be built.")
+endif()
+
+add_subdirectory(barectf)
