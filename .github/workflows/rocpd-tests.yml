@@ -27,7 +27,7 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt update
-        sudo apt install -y babeltrace2 cmake
+        sudo apt install -y babeltrace2 cmake python3-barectf
         
     - name: Install Python dependencies
       run: |
