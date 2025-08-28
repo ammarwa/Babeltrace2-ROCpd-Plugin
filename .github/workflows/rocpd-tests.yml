@@ -32,10 +32,12 @@ jobs:
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
-        # Install dependencies from root requirements.txt if it exists
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-        # Install dependencies from rocpd requirements.txt if it exists
-        if [ -f rocpd/requirements.txt ]; then pip install -r rocpd/requirements.txt; fi
+        python -m pip install 'Cython>=0.29.36,<0.30'
+        python -m pip install 'PyYAML==6.0.1'
+        python -m pip install 'jsonschema<4.0,>=3.2'
+        python -m pip install 'jinja2<4.0,>=3.0'
+        python -m pip install 'termcolor>=1.1'
+        python -m pip install --no-deps 'barectf>=3.1.0'
         
     - name: Lint with flake8
       run: |
@@ -46,14 +48,12 @@ jobs:
         flake8 rocpd --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
         
     - name: Run ROCpd tests
-      run: |
-        cd rocpd/tests
-        python3 run_tests.py --verbose
+      working-directory: rocpd
+      run: python3 -m pytest --verbose
         
     - name: Run ROCpd tests with coverage
-      run: |
-        cd rocpd/tests
-        python3 run_tests.py --coverage
+      working-directory: rocpd/tests
+      run: python3 run_tests.py --coverage
         
     - name: Upload coverage reports
       uses: actions/upload-artifact@v4
