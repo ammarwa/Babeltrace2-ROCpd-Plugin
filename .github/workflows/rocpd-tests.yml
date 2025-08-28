@@ -1,0 +1,64 @@
+name: ROCpd Tests
+
+on:
+  pull_request:
+    branches: [ "rocpd" ]
+    paths:
+      - 'rocpd/**'
+      - 'rocpd/tests/**'
+      - 'requirements.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  test-rocpd:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v3
+      with:
+        python-version: "3.10"
+        
+    - name: Install system dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y babeltrace2 cmake
+        
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # Install dependencies from root requirements.txt if it exists
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        # Install dependencies from rocpd requirements.txt if it exists
+        if [ -f rocpd/requirements.txt ]; then pip install -r rocpd/requirements.txt; fi
+        
+    - name: Lint with flake8
+      run: |
+        pip install flake8
+        # stop the build if there are Python syntax errors or undefined names
+        flake8 rocpd --count --select=E9,F63,F7,F82 --show-source --statistics
+        # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
+        flake8 rocpd --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+        
+    - name: Run ROCpd tests
+      run: |
+        cd rocpd/tests
+        python3 run_tests.py --verbose
+        
+    - name: Run ROCpd tests with coverage
+      run: |
+        cd rocpd/tests
+        python3 run_tests.py --coverage
+        
+    - name: Upload coverage reports
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: coverage-report
+        path: htmlcov/
+        retention-days: 7
