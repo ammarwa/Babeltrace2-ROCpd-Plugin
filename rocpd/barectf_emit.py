@@ -816,15 +816,25 @@ def main():
             # Launch tasks with a thread pool. The number of workers is limited
             # to avoid oversubscribing. Each task collects events for a single
             # view in a specific database.
-            with ThreadPoolExecutor(max_workers=min(collect_threads, len(tasks))) as exe:
-                futures = [exe.submit(task_wrapper, d, n, f) for d, n, f in tasks]
-                for fut in futures:
-                    try:
-                        result = fut.result()
-                        events.extend(result)
-                    except Exception:
-                        pass
-            collect_progress_finish()
+            # Only create a thread pool when tasks are available.  If the list of
+            # tasks is empty then there is nothing to collect and using zero workers
+            # is invalid (ThreadPoolExecutor requires max_workers >= 1).
+            if not tasks:
+                collect_progress_finish()
+            else:
+                num_workers = min(collect_threads, len(tasks))
+                if num_workers < 1:
+                    num_workers = 1
+                with ThreadPoolExecutor(max_workers=num_workers) as exe:
+                    futures = [exe.submit(task_wrapper, d, n, f) for d, n, f in tasks]
+                    for fut in futures:
+                        try:
+                            result = fut.result()
+                            events.extend(result)
+                        except Exception:
+                            pass
+                collect_progress_finish()
+
         print("Finished Collection Step!")
 
     print("Emitting Events to CTF Trace...")

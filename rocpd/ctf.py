@@ -48,7 +48,7 @@ from . import output_config
 
 def _run_simple_emitter(db_files: Iterable[str], out_dir: str, **kwargs) -> bool:
     """Simple CTF emitter that works without the compiled bridge library.
-    
+
     Parameters
     ----------
     db_files: Iterable[str]
@@ -66,18 +66,18 @@ def _run_simple_emitter(db_files: Iterable[str], out_dir: str, **kwargs) -> bool
     """
     try:
         from . import ctf_simple
-        
+
         # Create RocpdImportData from the database files
         importData = RocpdImportData(db_files)
-        
+
         # Create a simple output config
         config = output_config.output_config()
         config.output_path = pathlib.Path(out_dir).parent
         config.output_file = pathlib.Path(out_dir).name
-        
+
         # Use the simple CTF implementation
         return ctf_simple.write_ctf(importData, config, **kwargs)
-        
+
     except Exception as exc:
         sys.stderr.write(f"Simple CTF conversion failed: {exc}\n")
         sys.stderr.flush()
@@ -215,17 +215,26 @@ def write_ctf(importData: RocpdImportData, config: Optional[output_config.output
             db_files = list(getattr(importData, "_filenames", []))
         except Exception:
             pass
-    # If still empty raise an error
-    if not db_files:
-        sys.stderr.write(
-            "Could not determine input database filenames for CTF conversion.\n"
-        )
+    # Filter out missing input files and warn the user.  Any missing files
+    # are reported on stderr.  If all inputs are missing, return False.
+    existing_files = [f for f in db_files if os.path.exists(f)]
+    missing_files = [f for f in db_files if not os.path.exists(f)]
+    if missing_files:
+        sys.stderr.write("Missing input files: " + ", ".join(missing_files) + "\n")
         sys.stderr.flush()
-        return False
+        db_files = existing_files
+        if not db_files:
+            # No valid files remain, so abort the conversion.
+            return False
     # Invoke the emitter.  Pass any remaining kwargs through (for
     # example ``packet_bytes`` or ``streaming``).  Unknown options
     # silently propagate to the emitter.
-    return _run_emitter(db_files, os.fspath(out_dir), **kwargs)
+    # Filter out configuration keys that belong to the output configuration.
+    # 'output_file' and 'output_path' should not be passed to the emitter because
+    # the barectf emitter does not understand these options.
+    emitter_kwargs = {k: v for k, v in kwargs.items()
+                    if k not in ('output_file', 'output_path')}
+    return _run_emitter(db_files, os.fspath(out_dir), **emitter_kwargs)
 
 
 def execute(input: Iterable[str], config: Optional[output_config.output_config] = None, window_args: Optional[dict] = None, **kwargs) -> None:
