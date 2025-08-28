@@ -5,37 +5,34 @@ project(rocpd-wheel NONE)
 set(ROCPD_PYTHON_VERSIONS "3.10" CACHE STRING
     "Python versions to build rocpd wheels for")
 
-# Package version
 set(ROCPD_VERSION "0.1.0")
-
-# Path to the source package we want to package
 set(ROCPD_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../rocpd")
-
-# Staging directory where we assemble the package for each wheel build
 set(ROCPD_STAGE_DIR "${CMAKE_CURRENT_BINARY_DIR}/rocpd_pkg")
 
-# Clean staging dir and copy sources
 file(REMOVE_RECURSE "${ROCPD_STAGE_DIR}")
 file(MAKE_DIRECTORY "${ROCPD_STAGE_DIR}")
 file(COPY "${ROCPD_SRC_DIR}" DESTINATION "${ROCPD_STAGE_DIR}")
 
-# Write a minimal setup.py that explicitly packages only the rocpd package
-# and includes the native shared object + metadata file.
+# Write dummy C extension source to force a platlib wheel
+file(WRITE "${ROCPD_STAGE_DIR}/marker_dummy.c" "int rocpd_marker(void){return 0;}\n")
+
+# Write setup.py with dummy extension (no manual bdist options)
 file(WRITE "${ROCPD_STAGE_DIR}/setup.py"
-"from setuptools import setup, find_packages\n"
+"from setuptools import setup, find_packages, Extension\n"
+"ext_modules=[Extension('rocpd._marker', sources=['marker_dummy.c'])]\n"
 "setup(\n"
-"    name='rocpd',\n"
-"    version='${ROCPD_VERSION}',\n"
-"    packages=find_packages(),\n"
-"    description='Minimal ROCpd Python interface with CTF support',\n"
-"    python_requires='>=3.6',\n"
-"    package_data={'rocpd': ['librocpd_barectf*.so', 'metadata']},\n"
-"    include_package_data=True,\n"
+"  name='rocpd',\n"
+"  version='${ROCPD_VERSION}',\n"
+"  packages=find_packages(),\n"
+"  description='Minimal ROCpd Python interface with CTF support',\n"
+"  python_requires='>=3.6',\n"
+"  package_data={'rocpd': ['librocpd_barectf*.so', 'metadata']},\n"
+"  include_package_data=True,\n"
+"  ext_modules=ext_modules,\n"
 ")\n"
 )
 
-# After building the barectf library, copy artifacts (lib + metadata) into staged package.
-# Library target is defined in subdirectory added later.
+# Stage native artifacts
 set(ROCPD_LIB_TARGET rocpd_barectf)
 set(ROCPD_METADATA_SRC "${CMAKE_BINARY_DIR}/barectf/gen/metadata")
 set(ROCPD_STAGED_LIB "${ROCPD_STAGE_DIR}/rocpd/librocpd_barectf.so")
@@ -53,44 +50,30 @@ add_custom_command(OUTPUT ${ROCPD_STAGED_METADATA}
 
 add_custom_target(rocpd_stage_assets DEPENDS ${ROCPD_STAGED_LIB} ${ROCPD_STAGED_METADATA})
 
-# List of per-version wheel targets
 set(WHEEL_TARGETS)
-
 foreach(ver IN LISTS ROCPD_PYTHON_VERSIONS)
-  # Remove dots for a valid target name: 3.10 -> 310
   string(REPLACE "." "" ver_nodot "${ver}")
-
-  find_program(PYTHON_EXEC_${ver_nodot}
-    NAMES "python${ver}" "python${ver}m"
-    DOC "Python ${ver} interpreter"
-  )
+  find_program(PYTHON_EXEC_${ver_nodot} NAMES "python${ver}" "python${ver}m" DOC "Python ${ver} interpreter")
   if(NOT PYTHON_EXEC_${ver_nodot})
     message(WARNING "Python ${ver} not found; skipping wheel for this version")
     continue()
   endif()
-
-  # Where to drop the wheel for this Python version
   set(dist_dir "${CMAKE_CURRENT_BINARY_DIR}/dist-${ver}")
   file(MAKE_DIRECTORY "${dist_dir}")
-
-  # Define a target that installs build tools and builds the wheel
   add_custom_target(rocpd_wheel_${ver_nodot} ALL
     COMMAND "${PYTHON_EXEC_${ver_nodot}}" -m pip install --quiet --upgrade build setuptools wheel
-    COMMAND "${PYTHON_EXEC_${ver_nodot}}" -m build --wheel --no-isolation --outdir "${dist_dir}"
+    COMMAND "${PYTHON_EXEC_${ver_nodot}}" -m build --wheel --outdir "${dist_dir}"
     WORKING_DIRECTORY "${ROCPD_STAGE_DIR}"
     DEPENDS rocpd_stage_assets
     COMMENT "Building rocpd ${ROCPD_VERSION} wheel for Python ${ver}"
-    VERBATIM
-  )
+    VERBATIM)
   list(APPEND WHEEL_TARGETS rocpd_wheel_${ver_nodot})
 endforeach()
 
-# Aggregate target to build all wheels
 if(WHEEL_TARGETS)
   add_custom_target(rocpd_wheels ALL DEPENDS ${WHEEL_TARGETS})
 else()
-  add_custom_target(rocpd_wheels ALL
-    COMMENT "No matching Python versions were found; no wheels will be built.")
+  add_custom_target(rocpd_wheels ALL COMMENT "No matching Python versions were found; no wheels will be built.")
 endif()
 
 add_subdirectory(barectf)

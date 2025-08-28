@@ -7,11 +7,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  manylinux-build:
-    name: manylinux wheels (Python ${{ matrix.py_ver }})
+  build-manylinux:
+    name: Build wheels (${{ matrix.py_ver }})
     runs-on: ubuntu-latest
-    container:
-      image: quay.io/pypa/${{ matrix.docker_image }}
     strategy:
       fail-fast: false
       matrix:
@@ -23,89 +21,91 @@ jobs:
           - { py_ver: '3.12', py_tag: 'cp312-cp312', docker_image: 'manylinux2014_x86_64' }
           - { py_ver: '3.13', py_tag: 'cp313-cp313', docker_image: 'manylinux_2_28_x86_64' }
     steps:
-      - name: Install Git
-        run: |-
-            yum update -y
-            yum install -y git
-            git clone -b rocpd https://github.com/ammarwa/Babeltrace2-ROCpd-Plugin.git
-            git clone -b v2.3.1 https://github.com/efficios/barectf.git
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: rocpd
 
-      - name: Install Barectf
-        shell: bash
-        working-directory: barectf
+      - name: Build in manylinux container
         env:
-            PY_VER: ${{ matrix.py_ver }}
-            PY_TAG: ${{ matrix.py_tag }}
+          PY_VER: ${{ matrix.py_ver }}
+          PY_TAG: ${{ matrix.py_tag }}
+          DOCKER_IMAGE: ${{ matrix.docker_image }}
         run: |
-            set -eox pipefail
-            export PYBIN=/opt/python/${PY_TAG}/bin
-            export PATH=$PYBIN:$PATH
-            $PYBIN/pip install --upgrade pip || true
-            $PYBIN/pip install --upgrade virtualenv
-            virtualenv --python=python3 virt
-            . ./virt/bin/activate
-            ./setup.py install
-
-      - name: Build wheel
-        shell: bash
-        working-directory: Babeltrace2-ROCpd-Plugin
-        env:
-            PY_VER: ${{ matrix.py_ver }}
-            PY_TAG: ${{ matrix.py_tag }}
-        run: |
-            set -eox pipefail
-            if [ ! -x /opt/python/${PY_TAG}/bin/python ]; then
-                echo 'Interpreter for ${PY_TAG} not found in image ${DOCKER_IMAGE}; skipping.'
-                exit 0
-            fi
-            export PYBIN=/opt/python/${PY_TAG}/bin
-            export PATH=$PYBIN:$PATH
-            $PYBIN/pip install --upgrade pip || true
-            $PYBIN/pip install build wheel setuptools cmake auditwheel packaging cmake
-            ls -lah; ls -lah rocpd
-            cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DROCPD_PYTHON_VERSIONS="${PY_VER}" -S $(pwd)/rocpd
-            cmake --build build --target rocpd_wheels -j$(nproc)
-            ls -R build/dist-${PY_VER}
-            if compgen -G 'build/dist-${PY_VER}/*.whl' > /dev/null; then
-                mkdir -p build/dist-${PY_VER}/repaired
-                for w in build/dist-${PY_VER}/*.whl; do
-                    auditwheel repair "${w}" -w build/dist-${PY_VER}/repaired || true
-                done
-                if compgen -G 'build/dist-${PY_VER}/repaired/*.whl' > /dev/null; then
-                    mv build/dist-${PY_VER}/repaired/*.whl build/dist-${PY_VER}
-                fi
-            fi
+          set -euo pipefail
+          echo "Building for $PY_VER ($PY_TAG) in $DOCKER_IMAGE"
+          docker run --rm \
+            -e PY_VER -e PY_TAG \
+            -v "$PWD:/io" \
+            quay.io/pypa/${DOCKER_IMAGE} /bin/bash -c "set -euo pipefail; \
+              if [ ! -x /opt/python/${PY_TAG}/bin/python ]; then echo 'Interpreter ${PY_TAG} missing in image ${DOCKER_IMAGE}; exit 0'; fi; \
+              yum install -y git || true; \
+              cd /io; \
+              PYBIN=/opt/python/${PY_TAG}/bin; \
+              \$PYBIN/pip install --upgrade pip; \
+              \$PYBIN/pip install --upgrade build wheel setuptools cmake auditwheel packaging; \
+              \$PYBIN/pip install 'Cython>=0.29.36,<0.30' || true; \
+              \$PYBIN/pip install 'PyYAML==6.0.1' || true; \
+              \$PYBIN/pip install 'jsonschema<4.0,>=3.2' || true; \
+              \$PYBIN/pip install 'jinja2<4.0,>=3.0' || true; \
+              \$PYBIN/pip install 'termcolor>=1.1' || true; \
+              \$PYBIN/pip install --no-deps 'barectf>=3.1.0'; \
+              export PATH=\"\$PYBIN:\$PATH\"; \
+              cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DROCPD_PYTHON_VERSIONS='${PY_VER}' -S rocpd; \
+              cmake --build build --target rocpd_wheels -j\$(nproc); \
+              ls -R build/dist-${PY_VER} || true; \
+              if compgen -G 'build/dist-${PY_VER}/*.whl' > /dev/null; then \
+                mkdir -p build/dist-${PY_VER}/repaired; \
+                for w in build/dist-${PY_VER}/*.whl; do auditwheel repair "\$w" -w build/dist-${PY_VER}/repaired || true; done; \
+                if compgen -G 'build/dist-${PY_VER}/repaired/*.whl' > /dev/null; then mv build/dist-${PY_VER}/repaired/*.whl build/dist-${PY_VER}/; fi; \
+              fi; \
+            "
 
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v4
         with:
-            name: wheels-${{ matrix.py_ver }}-${{ matrix.docker_image }}
-            path: build/dist-${{ matrix.py_ver }}/*.whl
-            if-no-files-found: ignore
+          name: wheels-${{ matrix.py_ver }}-${{ matrix.docker_image }}
+          path: build/dist-${{ matrix.py_ver }}/*.whl
+          if-no-files-found: ignore
 
   release:
-    name: Create GitHub Release
-    needs: manylinux-build
-    if: startsWith(github.ref, 'refs/tags/')
+    name: Create/Update Rolling Release
+    needs: build-manylinux
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: rocpd
 
       - name: Download all wheel artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist
 
-      - name: Display downloaded files
+      - name: Prepare tag and release metadata
+        id: prep
         run: |
-          find dist -type f -name '*.whl'
+          set -euo pipefail
+          TAG_NAME=rocpd-latest
+          RELEASE_NAME="ROCPD nightly (branch rocpd)"
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "release_name=$RELEASE_NAME" >> $GITHUB_OUTPUT
+          # Create or move lightweight tag to this commit
+          git tag -f "$TAG_NAME" "$GITHUB_SHA"
+          git push origin -f "$TAG_NAME"
 
-      - name: Create Release
+      - name: List wheels
+        run: find dist -type f -name '*.whl' -print
+
+      - name: Create/Update Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.prep.outputs.tag_name }}
+          name: ${{ steps.prep.outputs.release_name }}
           files: dist/**/**/*.whl
           draft: false
-          prerelease: false
+          prerelease: true
+          generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
