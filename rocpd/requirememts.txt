@@ -1,2 +1,3 @@
-barectf
+barectf==2.3.1
 packaging>=24.2
+cmake
