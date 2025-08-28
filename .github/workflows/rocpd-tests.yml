@@ -38,6 +38,9 @@ jobs:
         python -m pip install 'jinja2<4.0,>=3.0'
         python -m pip install 'termcolor>=1.1'
         python -m pip install --no-deps 'barectf>=3.1.0'
+        python -m pip install 'pytest>=6.0.0'
+        python -m pip install 'pytest-cov>=2.0.0'
+        python -m pip install typing dataclasses flake8
         
     - name: Lint with flake8
       run: |
