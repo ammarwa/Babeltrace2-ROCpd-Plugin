@@ -14,21 +14,21 @@ permissions:
 jobs:
   test-rocpd:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      
+
     - name: Set up Python 3.10
       uses: actions/setup-python@v3
       with:
         python-version: "3.10"
-        
+
     - name: Install system dependencies
       run: |
         sudo apt update
-        sudo apt install -y babeltrace2 cmake python3-barectf
-        
+        sudo apt install -y babeltrace2 python3-barectf build-essential
+
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
@@ -40,24 +40,30 @@ jobs:
         python -m pip install --no-deps 'barectf>=3.1.0'
         python -m pip install 'pytest>=6.0.0'
         python -m pip install 'pytest-cov>=2.0.0'
-        python -m pip install typing dataclasses flake8
-        
+        python -m pip install typing dataclasses flake8 importlib build wheel setuptools cmake auditwheel packaging
+
+    - name: Install ROCpd
+      shell: bash
+      run: |
+        cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DROCPD_PYTHON_VERSIONS="3.10" ./rocpd
+        cmake --build build --target all -j$(nproc)
+        cmake --build build --target install -j$(nproc)
+
     - name: Lint with flake8
       run: |
-        pip install flake8
         # stop the build if there are Python syntax errors or undefined names
         flake8 rocpd --count --select=E9,F63,F7,F82 --show-source --statistics
         # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
         flake8 rocpd --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-        
+
     - name: Run ROCpd tests
       working-directory: rocpd
       run: python3 -m pytest --verbose
-        
+
     - name: Run ROCpd tests with coverage
       working-directory: rocpd/tests
       run: python3 run_tests.py --coverage
-        
+
     - name: Upload coverage reports
       uses: actions/upload-artifact@v4
       if: always()
