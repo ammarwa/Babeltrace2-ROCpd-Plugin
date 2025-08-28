@@ -26,7 +26,7 @@ from __future__ import annotations
 import argparse
 
 from .importer import RocpdImportData
-from . import csv as csv_mod
+from . import csv_format as csv_mod
 from . import pftrace as pftrace_mod
 from . import otf2 as otf2_mod
 from . import ctf as ctf_mod

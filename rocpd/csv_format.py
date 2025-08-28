@@ -11,6 +11,16 @@ written.
 
 from __future__ import annotations
 
+# Pull in the built‑in csv module via importlib to avoid circular import.
+import importlib as _importlib
+_builtin_csv = _importlib.import_module('csv')
+# Expose common csv functions/classes so that any accidental import of
+# this module as `csv` still provides the expected API.
+reader = _builtin_csv.reader
+writer = _builtin_csv.writer
+DictReader = _builtin_csv.DictReader
+DictWriter = _builtin_csv.DictWriter
+
 from typing import Iterable, List, Dict
 
 def write_csv(importData, config=None, **kwargs):
