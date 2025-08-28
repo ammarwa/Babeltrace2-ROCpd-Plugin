@@ -6,7 +6,7 @@ on:
     paths:
       - 'rocpd/**'
       - 'rocpd/tests/**'
-      - 'requirements.txt'
+      - 'rocpd/requirements.txt'
 
 permissions:
   contents: read
