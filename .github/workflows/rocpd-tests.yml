@@ -47,7 +47,7 @@ jobs:
       run: |
         cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DROCPD_PYTHON_VERSIONS="3.10" ./rocpd
         cmake --build build --target all -j$(nproc)
-        cmake --build build --target install -j$(nproc)
+        sudo cmake --build build --target install -j$(nproc)
 
     - name: Lint with flake8
       run: |
