@@ -1,0 +1,73 @@
+name: ROCpd Tests
+
+on:
+  pull_request:
+    branches: [ "rocpd" ]
+    paths:
+      - 'rocpd/**'
+      - 'rocpd/tests/**'
+      - 'rocpd/requirements.txt'
+
+permissions:
+  contents: read
+
+jobs:
+  test-rocpd:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v3
+      with:
+        python-version: "3.10"
+
+    - name: Install system dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y babeltrace2 python3-barectf build-essential
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install 'Cython>=0.29.36,<0.30'
+        python -m pip install 'PyYAML==6.0.1'
+        python -m pip install 'jsonschema<4.0,>=3.2'
+        python -m pip install 'jinja2<4.0,>=3.0'
+        python -m pip install 'termcolor>=1.1'
+        python -m pip install --no-deps 'barectf>=3.1.0'
+        python -m pip install 'pytest>=6.0.0'
+        python -m pip install 'pytest-cov>=2.0.0'
+        python -m pip install typing dataclasses flake8 importlib build wheel setuptools cmake auditwheel packaging
+
+    - name: Install ROCpd
+      shell: bash
+      run: |
+        cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DROCPD_PYTHON_VERSIONS="3.10" ./rocpd
+        cmake --build build --target all -j$(nproc)
+        sudo cmake --build build --target install -j$(nproc)
+
+    - name: Lint with flake8
+      run: |
+        # stop the build if there are Python syntax errors or undefined names
+        flake8 rocpd --count --select=E9,F63,F7,F82 --show-source --statistics
+        # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
+        flake8 rocpd --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+    - name: Run ROCpd tests
+      working-directory: rocpd
+      run: python3 -m pytest --verbose
+
+    - name: Run ROCpd tests with coverage
+      working-directory: rocpd/tests
+      run: python3 run_tests.py --coverage
+
+    - name: Upload coverage reports
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: coverage-report
+        path: htmlcov/
+        retention-days: 7
